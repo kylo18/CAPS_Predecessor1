@@ -4,7 +4,8 @@ import ConfirmModal from "./confirmModal";
 import LoadingOverlay from "./loadingOverlay";
 import { Tooltip } from "flowbite-react";
 import RegisterDropDownSmall from "./registerDropDownSmall";
-
+import Toast from "./Toast";
+import useToast from "../hooks/useToast";
 // Component to display and manage user list with filtering and actions
 const UserList = () => {
   // Refs for dropdown positioning
@@ -13,10 +14,17 @@ const UserList = () => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalUsers, setTotalUsers] = useState(0);
+  const [itemsPerPage] = useState(50); // Number of items per page
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [tabLoading, setTabLoading] = useState(false);
 
   // State for user selection and filtering
   const [selectedUsers, setSelectedUsers] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [sortCategory, setSortCategory] = useState("");
   const [sortOption, setSortOption] = useState("");
   const [sortStatus, setSortStatus] = useState("All");
@@ -51,11 +59,8 @@ const UserList = () => {
 
   const apiUrl = import.meta.env.VITE_API_BASE_URL;
 
-  const [toast, setToast] = useState({
-    message: "",
-    type: "",
-    show: false,
-  });
+  // Get toast functions from hook
+  const { toast, showToast } = useToast();
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -76,42 +81,55 @@ const UserList = () => {
   }, [dropdownOpen]);
 
   useEffect(() => {
-    if (toast.message) {
-      setToast((prev) => ({ ...prev, show: true }));
-
-      const timer = setTimeout(() => {
-        setToast((prev) => ({ ...prev, show: false }));
-        setTimeout(() => {
-          setToast({ message: "", type: "", show: false });
-        }, 500);
-      }, 2500);
-
-      return () => clearTimeout(timer);
-    }
-  }, [toast.message]);
-
-  useEffect(() => {
     fetchUsers();
   }, []);
 
-  // Function to fetch users from API
-  const fetchUsers = async () => {
+  // Add debounce effect for search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+      setSearchLoading(true);
+    }, 300); // 300ms delay
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Update fetchUsers to include filters
+  const fetchUsers = async (page = 1) => {
     const token = localStorage.getItem("token");
 
     if (!token) {
       setError("No token found, please log in.");
       setLoading(false);
+      setSearchLoading(false);
+      setTabLoading(false);
       return;
     }
 
     try {
-      const response = await fetch(`${apiUrl}/users`, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+      // Build query parameters
+      const queryParams = new URLSearchParams({
+        page: page,
+        limit: itemsPerPage,
+        search: debouncedSearchQuery,
+        status: statusFilter,
+        campus: campusFilter,
+        role: roleFilter,
+        position: positionFilter,
+        program: programFilter,
+        state: stateFilter,
       });
+
+      const response = await fetch(
+        `${apiUrl}/users?${queryParams.toString()}`,
+        {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
 
       if (response.status === 401) {
         setError("Session expired, please log in again.");
@@ -129,12 +147,31 @@ const UserList = () => {
 
       const data = await response.json();
       setUsers(data.users);
+      setTotalPages(Math.ceil(data.total / itemsPerPage));
+      setTotalUsers(data.total);
+      setCurrentPage(page);
     } catch (error) {
       setError(error.message);
+      showToast("Failed to fetch users. Please try again.", "error");
     } finally {
       setLoading(false);
+      setSearchLoading(false);
+      setTabLoading(false);
     }
   };
+
+  // Update useEffect to refetch when filters change
+  useEffect(() => {
+    fetchUsers(1); // Reset to first page when filters change
+  }, [
+    debouncedSearchQuery,
+    statusFilter,
+    campusFilter,
+    roleFilter,
+    positionFilter,
+    programFilter,
+    stateFilter,
+  ]);
 
   // Function to handle user selection via checkbox
   const handleCheckboxChange = (userID) => {
@@ -145,50 +182,10 @@ const UserList = () => {
     );
   };
 
-  const filteredUsers = users
-    .sort((a, b) => b.userID - a.userID) // Sort by userID in descending order (most recent first)
-    .filter((user) => {
-      const matchesSearch =
-        user.userID.toString().includes(searchQuery) ||
-        user.userCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        `${user.firstName} ${user.lastName}`
-          .toLowerCase()
-          .includes(searchQuery.toLowerCase()) ||
-        user.email.toLowerCase().includes(searchQuery.toLowerCase());
-
-      const matchesSort =
-        !sortCategory ||
-        sortOption === "All" ||
-        (sortCategory === "Campus" && user.campus === sortOption) ||
-        (sortCategory === "Role" && user.role === sortOption);
-
-      const matchesStatus =
-        !sortStatus || sortStatus === "All" || user.status === sortStatus;
-
-      return matchesSearch && matchesSort && matchesStatus;
-    });
-
-  const pendingUsersCount = filteredUsers.filter(
+  // Remove all local filtering since it's now handled by the backend
+  const pendingUsersCount = users.filter(
     (user) => user.status === "pending",
   ).length;
-
-  // Update the filter logic for the table
-  const filteredTableUsers = filteredUsers.filter((user) => {
-    return (
-      (campusFilter ? user.campus === campusFilter : true) &&
-      (roleFilter ? user.role === roleFilter : true) &&
-      (positionFilter ? user.role === positionFilter : true) &&
-      (programFilter ? user.program === programFilter : true) &&
-      (stateFilter ? user.isActive === (stateFilter === "Active") : true) &&
-      // Filter by status
-      (statusFilter === "all" ? true : user.status === statusFilter) &&
-      // Search filter by name, email, or user code
-      (user.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        user.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        user.userCode.toLowerCase().includes(searchTerm.toLowerCase()))
-    );
-  });
 
   const handleSearchChange = (e) => {
     setSearchTerm(e.target.value); // Update the search term
@@ -198,7 +195,6 @@ const UserList = () => {
   const handleApproveUser = async (userID) => {
     const token = localStorage.getItem("token");
     setIsApproving(true);
-    setShowModal(false);
     try {
       const response = await fetch(`${apiUrl}/users/${userID}/approve`, {
         method: "PATCH",
@@ -213,11 +209,7 @@ const UserList = () => {
         const errorData = await response.json();
         throw new Error(errorData.message || "Failed to approve user");
       }
-      setToast({
-        message: "User approved successfully!",
-        type: "success",
-        show: true,
-      });
+      showToast("User approved successfully!", "success");
 
       setUsers(
         users.map((user) =>
@@ -230,8 +222,10 @@ const UserList = () => {
         ),
       );
       fetchUsers();
+      setShowModal(false);
     } catch (error) {
       console.error("Error approving user:", error);
+      showToast("Failed to approve user. Please try again.", "error");
     } finally {
       setIsApproving(false);
     }
@@ -241,7 +235,6 @@ const UserList = () => {
   const handleActivateUser = async (userID) => {
     const token = localStorage.getItem("token");
     setIsActivating(true);
-    setShowModal(false);
     try {
       const response = await fetch(`${apiUrl}/users/${userID}/activate`, {
         method: "PATCH",
@@ -257,19 +250,19 @@ const UserList = () => {
         throw new Error(errorData.message || "Failed to activate user");
       }
 
-      setToast({
-        message: "User activated successfully!",
-        type: "success",
-        show: true,
-      });
+      showToast("User activated successfully!", "success");
 
       setUsers(
         users.map((user) =>
           user.userID === userID ? { ...user, isActive: true } : user,
         ),
       );
+      setShowModal(false);
     } catch (error) {
-      alert(error.message);
+      showToast(
+        error.message || "Failed to activate user. Please try again.",
+        "error",
+      );
     } finally {
       setIsActivating(false);
     }
@@ -279,7 +272,6 @@ const UserList = () => {
   const handleDeactivateUser = async (userID) => {
     const token = localStorage.getItem("token");
     setIsDeactivating(true);
-    setShowModal(false);
     try {
       const response = await fetch(`${apiUrl}/users/${userID}/deactivate`, {
         method: "PATCH",
@@ -294,19 +286,17 @@ const UserList = () => {
         const errorData = await response.json();
         throw new Error(errorData.message || "Failed to deactivate user");
       }
-      setToast({
-        message: "User deactivated successfully!",
-        type: "success",
-        show: true,
-      });
+      showToast("User deactivated successfully!", "success");
 
       setUsers((prevUsers) =>
         prevUsers.map((user) =>
           user.userID === userID ? { ...user, isActive: false } : user,
         ),
       );
+      setShowModal(false);
     } catch (error) {
       console.error("Error deactivating user:", error);
+      showToast("Failed to deactivate user. Please try again.", "error");
     } finally {
       setIsDeactivating(false);
     }
@@ -317,7 +307,7 @@ const UserList = () => {
     const token = localStorage.getItem("token");
     setIsApprovingMultiple(true);
     if (selectedUsers.length === 0) {
-      alert("Please select users to approve.");
+      showToast("Please select users to approve.", "error");
       return;
     }
 
@@ -335,15 +325,12 @@ const UserList = () => {
         throw new Error("Failed to approve selected users.");
       }
 
-      setToast({
-        message: "Users approved successfully!",
-        type: "success",
-        show: true,
-      });
+      showToast("Users approved successfully!", "success");
       fetchUsers();
       setSelectedUsers([]); // clear selection
     } catch (error) {
       console.error(error);
+      showToast("Failed to approve selected users. Please try again.", "error");
     } finally {
       setIsApprovingMultiple(false);
     }
@@ -355,7 +342,7 @@ const UserList = () => {
     setIsActivatingMultiple(true);
 
     if (selectedUsers.length === 0) {
-      alert("Please select users to activate.");
+      showToast("Please select users to activate.", "error");
       return;
     }
 
@@ -375,14 +362,13 @@ const UserList = () => {
 
       fetchUsers();
       setSelectedUsers([]);
-      setToast({
-        message: "Users activated successfully!",
-        type: "success",
-        show: true,
-      });
+      showToast("Users activated successfully!", "success");
     } catch (error) {
       console.error(error);
-      alert("Error activating selected users.");
+      showToast(
+        "Failed to activate selected users. Please try again.",
+        "error",
+      );
     } finally {
       setIsActivatingMultiple(false);
     }
@@ -394,7 +380,7 @@ const UserList = () => {
     setIsDeactivatingMultiple(true);
 
     if (selectedUsers.length === 0) {
-      alert("Please select users to deactivate.");
+      showToast("Please select users to deactivate.", "error");
       return;
     }
 
@@ -411,16 +397,15 @@ const UserList = () => {
       if (!response.ok) {
         throw new Error("Failed to deactivate selected users.");
       }
-      setToast({
-        message: "Users deactivated successfully!",
-        type: "success",
-        show: true,
-      });
+      showToast("Users deactivated successfully!", "success");
       fetchUsers();
       setSelectedUsers([]);
     } catch (error) {
       console.error(error);
-      alert("Error deactivating selected users.");
+      showToast(
+        "Failed to deactivate selected users. Please try again.",
+        "error",
+      );
     } finally {
       setIsDeactivatingMultiple(false);
     }
@@ -429,11 +414,7 @@ const UserList = () => {
   // Function to handle bulk actions (approve/activate/deactivate)
   const handleActionClick = (action) => {
     if (selectedUsers.length === 0) {
-      setToast({
-        message: "Please select at least one user first",
-        type: "error",
-        show: true,
-      });
+      showToast("Please select at least one user first", "error");
       return;
     }
 
@@ -449,6 +430,12 @@ const UserList = () => {
         break;
     }
     setDropdownOpen(false);
+  };
+
+  // Function to handle page change
+  const handlePageChange = (newPage) => {
+    setLoading(true);
+    fetchUsers(newPage);
   };
 
   //Skeleton Table
@@ -537,8 +524,153 @@ const UserList = () => {
   }
 
   if (error) {
-    return <div>Error: {error}</div>;
+    return (
+      <div className="font-inter mt-10">
+        <div className="mb-4 flex items-center justify-between gap-2 text-[14px]">
+          {/* Keep the top bar with filters */}
+          <div className="relative flex w-full items-center justify-between gap-4">
+            <div className="flex items-center gap-2 rounded-md bg-gray-300 md:flex-row md:gap-2">
+              <div className="hidden items-center gap-1 text-[12px] font-semibold text-gray-500 md:flex">
+                <button className="rounded-md px-8 py-[8px] text-gray-500">
+                  All
+                </button>
+                <button className="rounded-md px-6 py-[8px] text-gray-500">
+                  Pending
+                </button>
+                <button className="rounded-md px-5 py-[8px] text-gray-500">
+                  Approved
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-t-sm border border-b-0 border-[rgb(200,200,200)] bg-white px-5 py-3 text-[12px] shadow-sm sm:text-[14px]">
+          <span className="ml-0 text-sm font-medium text-gray-600">Users</span>
+        </div>
+
+        {/* Mobile Error View */}
+        <div className="min-[1000px]:hidden">
+          <div className="border border-gray-300 bg-white p-4 text-center text-[14px] text-gray-700 shadow-sm">
+            <div className="mb-2 text-red-500">
+              <i className="bx bx-error-circle text-2xl"></i>
+            </div>
+            <p className="font-medium">Unable to fetch users</p>
+            <p className="text-sm text-gray-500">
+              Please check your connection and try again
+            </p>
+          </div>
+        </div>
+
+        {/* Desktop Error View */}
+        <div className="hidden w-full overflow-x-auto min-[1000px]:block">
+          <table className="min-w-full table-fixed border border-[rgb(200,200,200)] bg-white shadow-md">
+            <thead>
+              <tr className="border-b border-[rgb(200,200,200)] bg-white text-[10px] text-[rgb(78,78,78)] sm:text-[12px]">
+                <th className="w-[5%] px-2 py-3 text-left"></th>
+                <th className="w-[10%] px-2 py-3 text-left font-semibold text-nowrap">
+                  USER CODE
+                </th>
+                <th className="hidden max-w-[150px] truncate px-2 py-3 text-left font-semibold sm:table-cell">
+                  NAME
+                </th>
+                <th className="w-[20%] px-2 py-1 text-left font-semibold">
+                  EMAIL
+                </th>
+                <th className="w-[10%] px-2 py-1 text-left font-semibold">
+                  POSITION
+                </th>
+                <th className="w-[10%] px-2 py-1 text-left font-semibold">
+                  CAMPUS
+                </th>
+                <th className="w-[10%] px-2 py-1 text-center font-semibold">
+                  STATUS
+                </th>
+                <th className="w-[10%] px-2 py-1 text-center font-semibold">
+                  PROGRAM
+                </th>
+                <th className="w-[10%] px-2 py-1 text-center font-semibold">
+                  STATE
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td colSpan="9" className="py-8">
+                  <div className="flex flex-col items-center justify-center text-center">
+                    <div className="mb-2 text-red-500">
+                      <i className="bx bx-error-circle text-3xl"></i>
+                    </div>
+                    <p className="font-medium text-gray-700">
+                      Unable to fetch users
+                    </p>
+                    <p className="text-sm text-gray-500">
+                      Please check your connection and try again
+                    </p>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
   }
+
+  const renderPagination = () => {
+    const pages = [];
+    const maxVisiblePages = 5;
+    let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+    let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+
+    if (endPage - startPage + 1 < maxVisiblePages) {
+      startPage = Math.max(1, endPage - maxVisiblePages + 1);
+    }
+
+    for (let i = startPage; i <= endPage; i++) {
+      pages.push(
+        <button
+          key={i}
+          onClick={() => handlePageChange(i)}
+          className={`mx-1 rounded-md px-3 py-1 text-sm ${
+            currentPage === i
+              ? "bg-orange-500 text-white"
+              : "bg-white text-gray-700 hover:bg-gray-100"
+          }`}
+        >
+          {i}
+        </button>,
+      );
+    }
+
+    return (
+      <div className="mt-4 flex items-center justify-center gap-2">
+        <button
+          onClick={() => handlePageChange(currentPage - 1)}
+          disabled={currentPage === 1}
+          className={`rounded-md px-3 py-1 text-sm ${
+            currentPage === 1
+              ? "cursor-not-allowed bg-gray-100 text-gray-400"
+              : "bg-white text-gray-700 hover:bg-gray-100"
+          }`}
+        >
+          Previous
+        </button>
+        {pages}
+        <button
+          onClick={() => handlePageChange(currentPage + 1)}
+          disabled={currentPage === totalPages}
+          className={`rounded-md px-3 py-1 text-sm ${
+            currentPage === totalPages
+              ? "cursor-not-allowed bg-gray-100 text-gray-400"
+              : "bg-white text-gray-700 hover:bg-gray-100"
+          }`}
+        >
+          Next
+        </button>
+      </div>
+    );
+  };
 
   return (
     <div className="font-inter mt-10">
@@ -549,7 +681,10 @@ const UserList = () => {
             {/* Status Buttons (Visible on medium screens and up) */}
             <div className="hidden items-center gap-1 text-[12px] font-semibold text-gray-500 md:flex">
               <button
-                onClick={() => setStatusFilter("all")}
+                onClick={() => {
+                  setTabLoading(true);
+                  setStatusFilter("all");
+                }}
                 className={`rounded-md px-8 py-[8px] ${
                   statusFilter === "all"
                     ? "border-color border bg-gray-100 text-gray-700"
@@ -560,7 +695,10 @@ const UserList = () => {
               </button>
 
               <button
-                onClick={() => setStatusFilter("pending")}
+                onClick={() => {
+                  setTabLoading(true);
+                  setStatusFilter("pending");
+                }}
                 className={`rounded-md px-6 py-[8px] ${
                   statusFilter === "pending"
                     ? "border-color border bg-gray-100 text-gray-700"
@@ -571,7 +709,10 @@ const UserList = () => {
               </button>
 
               <button
-                onClick={() => setStatusFilter("registered")}
+                onClick={() => {
+                  setTabLoading(true);
+                  setStatusFilter("registered");
+                }}
                 className={`rounded-md px-5 py-[8px] ${
                   statusFilter === "registered"
                     ? "border-color border bg-gray-100 text-gray-700"
@@ -603,6 +744,7 @@ const UserList = () => {
                   <div className="py-1 text-sm text-gray-700">
                     <button
                       onClick={() => {
+                        setTabLoading(true);
                         setStatusFilter("all");
                         setStatusDropdownOpen(false);
                       }}
@@ -612,6 +754,7 @@ const UserList = () => {
                     </button>
                     <button
                       onClick={() => {
+                        setTabLoading(true);
                         setStatusFilter("pending");
                         setStatusDropdownOpen(false);
                       }}
@@ -621,6 +764,7 @@ const UserList = () => {
                     </button>
                     <button
                       onClick={() => {
+                        setTabLoading(true);
                         setStatusFilter("registered");
                         setStatusDropdownOpen(false);
                       }}
@@ -642,15 +786,15 @@ const UserList = () => {
               onClick={() => {
                 window.location.reload();
               }}
-              className="border-color flex cursor-pointer items-center gap-3 rounded border bg-white p-1 text-gray-700 shadow-sm hover:bg-orange-500 hover:text-white"
+              className="border-color flex cursor-pointer items-center gap-3 rounded border bg-white p-1 text-2xl text-gray-700 shadow-sm hover:bg-orange-500 hover:text-white"
             >
-              <i className="bx bx-refresh text-2xl"></i>
+              <i className="bx bx-refresh-ccw"></i>
             </button>
           </Tooltip>
         </div>
 
         {/* Search Bar */}
-        <div className="border-color flex w-[50%] min-w-[100px] cursor-pointer items-center rounded-md border bg-white px-2 py-[1px] text-gray-700 shadow-sm sm:max-w-[300px]">
+        <div className="border-color flex w-[50%] min-w-[100px] cursor-pointer items-center rounded-md border bg-white px-2 text-gray-700 shadow-sm sm:max-w-[300px]">
           <i className="bx bx-search text-[20px] text-gray-500"></i>
           <div className="flex flex-1">
             <input
@@ -658,19 +802,20 @@ const UserList = () => {
               placeholder="Search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full flex-1 rounded-md p-2 text-[10px] text-gray-700 outline-none"
+              className="w-full flex-1 rounded-md p-2 text-[11px] text-gray-700 outline-none"
             />
           </div>
         </div>
 
         {/* Filter Button */}
         <div className="flex items-center justify-center gap-4">
-          <Tooltip content="Filter" placement="bottom">
+          <Tooltip content="Filters" placement="bottom">
             <button
-              onClick={() => setShowFilters(!showFilters)} // toggle filter dropdown visibility
-              className="border-color flex cursor-pointer items-center gap-3 rounded border bg-white p-1 text-gray-700 shadow-sm hover:bg-orange-500 hover:text-white"
+              onClick={() => setShowFilters(!showFilters)}
+              className="border-color flex cursor-pointer items-center justify-center gap-1 rounded-md border bg-white px-[10px] py-1 text-gray-700 shadow-sm hover:bg-orange-500 hover:text-white"
             >
-              <i className="bx bx-filter-alt text-2xl"></i>
+              <i className="bx bx-menu-filter text-2xl"></i>
+              <span className="text-[12px] font-medium">Filters</span>
             </button>
           </Tooltip>
         </div>
@@ -683,7 +828,7 @@ const UserList = () => {
 
               <button
                 onClick={() => setShowFilters(false)}
-                className="absolute top-1 right-2 text-2xl text-gray-600 hover:text-gray-800"
+                className="absolute top-1 right-2 cursor-pointer text-2xl text-gray-600 hover:text-gray-800"
               >
                 <i className="bx bx-x"></i>
               </button>
@@ -720,12 +865,13 @@ const UserList = () => {
                   name="position"
                   value={positionFilter}
                   onChange={(e) => setPositionFilter(e.target.value)}
-                  placeholder="Select Campus"
+                  placeholder="Select Position"
                   options={[
                     { value: "", label: "All" },
                     { value: "Student", label: "Student" },
                     { value: "Instructor", label: "Instructor" },
                     { value: "Program Chair", label: "Program Chair" },
+                    { value: "Associate Dean", label: "Associate Dean" },
                     { value: "Dean", label: "Dean" },
                   ]}
                 />
@@ -740,14 +886,14 @@ const UserList = () => {
                   name="program"
                   value={programFilter}
                   onChange={(e) => setProgramFilter(e.target.value)}
-                  placeholder="Select Campus"
+                  placeholder="Select Program"
                   options={[
                     { value: "", label: "All" },
-                    { value: "BS-CpE", label: "BS-CpE" },
-                    { value: "BS-EE", label: "BS-EE" },
-                    { value: "BS-CE", label: "BS-CE" },
-                    { value: "BS-ECE", label: "BS-ECE" },
-                    { value: "BS-ABE", label: "BS-ABE" },
+                    { value: "BSCOE", label: "BSCOE" },
+                    { value: "BSEE", label: "BSEE" },
+                    { value: "BSCE", label: "BSCE" },
+                    { value: "BSECE", label: "BSECE" },
+                    { value: "BSABE", label: "BSABE" },
                   ]}
                 />
               </div>
@@ -761,7 +907,7 @@ const UserList = () => {
                   name="state"
                   value={stateFilter}
                   onChange={(e) => setStateFilter(e.target.value)}
-                  placeholder="Select Campus"
+                  placeholder="Select Status"
                   options={[
                     { value: "", label: "All" },
                     { value: "Active", label: "Active" },
@@ -787,10 +933,9 @@ const UserList = () => {
                 </button>
                 <button
                   onClick={() => setShowFilters(false)}
-                  className="mb-2 flex cursor-pointer items-center gap-1 rounded-md bg-orange-500 px-[12px] py-[6px] text-white transition-all duration-150 hover:bg-orange-700"
+                  className="mb-2 flex cursor-pointer items-center gap-1 rounded-md bg-orange-500 px-[15px] py-[6px] text-white transition-all duration-150 hover:bg-orange-700"
                 >
-                  <i className={`bx bx-check-double text-[20px]`}></i>
-                  <span className="pr-1.5 text-[14px]">Apply</span>
+                  <span className="text-[14px]">Apply</span>
                 </button>
               </div>
 
@@ -821,14 +966,17 @@ const UserList = () => {
                   placement="left"
                 >
                   <button
-                    onClick={() => handleActionClick("approve")}
-                    className={`w-full rounded-sm px-4 py-2 text-left text-black ${
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleActionClick("approve");
+                    }}
+                    className={`w-[130px] rounded-sm px-4 py-2 text-left text-black transition-colors ${
                       selectedUsers.length === 0
                         ? "cursor-not-allowed text-gray-400"
                         : "hover:bg-gray-200"
                     }`}
                   >
-                    Approve
+                    <span className="block w-full">Approve</span>
                   </button>
                 </Tooltip>
                 <Tooltip
@@ -840,14 +988,17 @@ const UserList = () => {
                   placement="left"
                 >
                   <button
-                    onClick={() => handleActionClick("activate")}
-                    className={`w-full rounded-sm px-4 py-2 text-left text-black ${
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleActionClick("activate");
+                    }}
+                    className={`w-[130px] rounded-sm px-4 py-2 text-left text-black transition-colors ${
                       selectedUsers.length === 0
                         ? "cursor-not-allowed text-gray-400"
                         : "hover:bg-gray-200"
                     }`}
                   >
-                    Activate
+                    <span className="block w-full">Activate</span>
                   </button>
                 </Tooltip>
                 <Tooltip
@@ -859,14 +1010,17 @@ const UserList = () => {
                   placement="left"
                 >
                   <button
-                    onClick={() => handleActionClick("deactivate")}
-                    className={`w-full rounded-sm px-4 py-2 text-left text-black ${
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleActionClick("deactivate");
+                    }}
+                    className={`w-[130px] rounded-sm px-4 py-2 text-left text-black transition-colors ${
                       selectedUsers.length === 0
                         ? "cursor-not-allowed text-gray-400"
                         : "hover:bg-gray-200"
                     }`}
                   >
-                    Deactivate
+                    <span className="block w-full">Deactivate</span>
                   </button>
                 </Tooltip>
               </div>
@@ -877,147 +1031,295 @@ const UserList = () => {
 
       {/* User Info Mobile */}
       {showModal && selectedUser && (
-        <div className="font-inter bg-opacity-30 lightbox-bg fixed inset-0 z-55 flex items-center justify-center">
-          <div className="relative w-11/12 max-w-md rounded-lg bg-white p-6 shadow-lg">
-            <button
-              onClick={() => setShowModal(false)}
-              className="absolute top-4 right-4 rounded-full px-[9px] py-[5px] text-gray-500 hover:bg-gray-100"
-              title="Close"
-            >
-              <i className="bx bx-x mt-[3px] text-[24px]"></i>
-            </button>
+        <>
+          <div className="font-inter bg-opacity-40 lightbox-bg fixed inset-0 z-100 flex items-center justify-center">
+            <div className="relative mx-2 w-full max-w-[480px] rounded-md bg-white shadow-2xl">
+              {/* Header */}
+              <div className="border-color relative flex items-center justify-between border-b py-2 pl-4">
+                <h2 className="text-[14px] font-medium text-gray-700">
+                  User Information
+                </h2>
 
-            <h2 className="mb-6 text-[16px] font-semibold text-gray-800">
-              User Details
-            </h2>
-
-            <div className="space-y-2 text-sm text-gray-700">
-              <div className="flex justify-between">
-                <span className="font-medium">Name</span>
-                <span>
-                  {selectedUser.firstName} {selectedUser.lastName}
-                </span>
-              </div>
-
-              <div className="flex justify-between">
-                <span className="font-medium">User Code</span>
-                <span>{selectedUser.userCode}</span>
-              </div>
-
-              <div className="flex justify-between">
-                <span className="font-medium">Email</span>
-                <span>{selectedUser.email}</span>
-              </div>
-
-              <div className="flex justify-between">
-                <span className="font-medium">Position</span>
-                <span>{selectedUser.role}</span>
-              </div>
-
-              <div className="flex justify-between">
-                <span className="font-medium">Campus</span>
-                <span>{selectedUser.campus}</span>
-              </div>
-
-              <div className="flex justify-between">
-                <span className="font-medium">Program</span>
-                <span>{selectedUser.program}</span>
-              </div>
-
-              <div className="flex justify-between">
-                <span className="font-medium">Status</span>
-                <span>{selectedUser.status}</span>
-              </div>
-
-              <div className="flex justify-between">
-                <span className="font-medium">Active</span>
-                <span>{selectedUser.isActive ? "Yes" : "No"}</span>
-              </div>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="mt-6 flex justify-end gap-6">
-              {selectedUser.status === "pending" && !selectedUser.isActive && (
                 <button
-                  className="ml-auto flex cursor-pointer items-center gap-1 rounded-md border px-4 py-1.5 text-gray-700 hover:bg-gray-200"
-                  onClick={() => handleApproveUser(selectedUser.userID)}
-                  title="Approve"
+                  onClick={() => setShowModal(false)}
+                  className="absolute top-1 right-1 cursor-pointer rounded-full px-[9px] py-[5px] text-gray-700 hover:text-gray-900"
+                  title="Close"
                 >
-                  <i className="bx bxs-user-check text-2xl"></i>
-                  <span className="mt-1 text-xs">Approve</span>
+                  <i className="bx bx-x text-[20px]"></i>
                 </button>
-              )}
+              </div>
+              {/* Content */}
+              <form className="edit-profile-modal-scrollbar max-h-[calc(90vh-60px)] overflow-y-auto px-5 py-4">
+                {/* Fields */}
+                <div className="mb-4 grid grid-cols-2 gap-x-4 text-start">
+                  <div>
+                    <span className="block text-[14px] text-gray-700">
+                      First name
+                    </span>
+                    <div className="peer mt-1 w-full rounded-xl border border-gray-300 px-4 py-[7px] text-[14px] text-gray-900 placeholder-transparent transition-all duration-200 hover:border-gray-500 focus:border-[#FE6902] focus:outline-none">
+                      {selectedUser.firstName}
+                    </div>
+                  </div>
+                  <div>
+                    <span className="block text-[14px] text-gray-700">
+                      Last name
+                    </span>
+                    <div className="peer mt-1 w-full rounded-xl border border-gray-300 px-4 py-[7px] text-[14px] text-gray-900 placeholder-transparent transition-all duration-200 hover:border-gray-500 focus:border-[#FE6902] focus:outline-none">
+                      {selectedUser.lastName}
+                    </div>
+                  </div>
+                  <div>
+                    <span className="mt-2 block text-[14px] text-gray-700">
+                      Campus
+                    </span>
+                    <div className="peer mt-1 w-full rounded-xl border border-gray-300 px-4 py-[7px] text-[14px] text-gray-900 placeholder-transparent transition-all duration-200 hover:border-gray-500 focus:border-[#FE6902] focus:outline-none">
+                      {selectedUser.campus}
+                    </div>
+                  </div>
+                  <div>
+                    <span className="mt-2 block text-[14px] text-gray-700">
+                      Position
+                    </span>
+                    <div className="peer mt-1 w-full rounded-xl border border-gray-300 px-4 py-[7px] text-[14px] text-gray-900 placeholder-transparent transition-all duration-200 hover:border-gray-500 focus:border-[#FE6902] focus:outline-none">
+                      {selectedUser.role}
+                    </div>
+                  </div>
+                </div>
 
-              {selectedUser.status === "registered" &&
-                selectedUser.isActive && (
-                  <button
-                    className="ml-auto flex cursor-pointer items-center gap-1 rounded-md border px-4 py-1.5 text-gray-700 hover:bg-gray-200"
-                    onClick={() => handleDeactivateUser(selectedUser.userID)}
-                    title="Deactivate"
-                  >
-                    <i className="bx bx-log-out bx-flip-horizontal text-2xl"></i>
-                    <span className="mt-1 text-xs">Deactivate</span>
-                  </button>
-                )}
+                <div className="mt-2 mb-3 h-[0.5px] bg-[rgb(200,200,200)]" />
 
-              {selectedUser.status === "registered" &&
-                !selectedUser.isActive && (
-                  <button
-                    className="ml-auto flex cursor-pointer items-center gap-1 rounded-md border px-4 py-1.5 text-gray-700 hover:bg-gray-200"
-                    onClick={() => handleActivateUser(selectedUser.userID)}
-                    title="Activate"
-                  >
-                    <i className="bx bx-check-double text-2xl"></i>
-                    <span className="mt-1 text-xs">Activate</span>
-                  </button>
-                )}
+                {/* Credentials */}
+                <div className="mb-4">
+                  <span className="block text-start text-[14px] text-gray-700">
+                    Program
+                  </span>
+                  <div className="peer mt-1 w-full rounded-xl border border-gray-300 px-4 py-[7px] text-[14px] text-gray-900 placeholder-transparent transition-all duration-200 hover:border-gray-500 focus:border-[#FE6902] focus:outline-none">
+                    {selectedUser.program}
+                  </div>
+                  <div className="mt-1 text-start text-[11px] text-gray-400">
+                    The program the user is assigned to. Used to filter subjects
+                    and academic content specific to your curriculum.
+                  </div>
+                </div>
+
+                {/* Account details */}
+                <div className="mb-4">
+                  <div className="grid grid-cols-2 gap-x-4">
+                    <div>
+                      <span className="block text-start text-[14px] text-gray-700">
+                        User Code
+                      </span>
+                      <div className="peer mt-1 w-full rounded-xl border border-gray-300 px-4 py-[7px] text-[14px] text-gray-900 placeholder-transparent transition-all duration-200 hover:border-gray-500 focus:border-[#FE6902] focus:outline-none">
+                        {selectedUser.userCode}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="block text-start text-[14px] text-gray-700">
+                        Email Address
+                      </span>
+                      <div className="peer mt-1 w-full truncate rounded-xl border border-gray-300 px-4 py-[7px] text-[14px] text-gray-900 placeholder-transparent transition-all duration-200 hover:border-gray-500 focus:border-[#FE6902] focus:outline-none">
+                        {selectedUser.email}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-2 mb-3 h-[0.5px] bg-[rgb(200,200,200)]" />
+
+                <div className="mb-3 flex flex-col gap-2">
+                  <div className="flex justify-between">
+                    <span className="block text-start text-[14px] text-gray-700">
+                      Approval Status:
+                    </span>
+                    <span
+                      className={`text-[14px] font-semibold capitalize ${
+                        selectedUser.status === "registered"
+                          ? "text-green-700"
+                          : selectedUser.status === "pending"
+                            ? "text-yellow-600"
+                            : "text-red-600"
+                      }`}
+                    >
+                      {selectedUser.status}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between">
+                    <span className="block text-start text-[14px] text-gray-700">
+                      Account Status:
+                    </span>
+                    <span
+                      className={`text-[14px] font-semibold ${
+                        selectedUser.isActive
+                          ? "text-green-700"
+                          : "text-red-600"
+                      }`}
+                    >
+                      {selectedUser.isActive ? "Active" : "Inactive"}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mb-3 h-[0.5px] bg-[rgb(200,200,200)]" />
+
+                {selectedUser.status === "pending" &&
+                  !selectedUser.isActive && (
+                    <div className="flex flex-col">
+                      <span className="block text-start text-[14px] font-semibold text-gray-700">
+                        Approve this Account?
+                      </span>
+
+                      <div className="mt-1 text-start text-[11px] text-gray-400">
+                        Approving this account will grant the user access to the
+                        system based on their assigned position.
+                      </div>
+
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          handleApproveUser(selectedUser.userID);
+                        }}
+                        disabled={isApproving}
+                        className={`mt-2 w-full cursor-pointer rounded-lg py-2 text-[14px] font-semibold text-white transition-all duration-100 ease-in-out ${isApproving ? "cursor-not-allowed bg-gray-500" : "bg-green-500 hover:bg-green-700 active:scale-98"} disabled:opacity-50`}
+                      >
+                        {isApproving ? (
+                          <div className="flex items-center justify-center">
+                            <span className="loader-white"></span>
+                          </div>
+                        ) : (
+                          "Approve"
+                        )}
+                      </button>
+                    </div>
+                  )}
+
+                {selectedUser.status === "registered" &&
+                  selectedUser.isActive && (
+                    <div className="flex flex-col">
+                      <span className="block text-start text-[14px] font-semibold text-gray-700">
+                        Deactivate this Account?
+                      </span>
+
+                      <div className="mt-1 text-start text-[11px] text-gray-400">
+                        Deactivating this account will disable access without
+                        deleting the users data. You can reactivate it at any
+                        time.
+                      </div>
+
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          handleDeactivateUser(selectedUser.userID);
+                        }}
+                        disabled={isDeactivating}
+                        className={`mt-2 w-full cursor-pointer rounded-lg py-2 text-[14px] font-semibold text-white transition-all duration-100 ease-in-out ${isDeactivating ? "cursor-not-allowed bg-gray-500" : "bg-red-500 hover:bg-red-700 active:scale-98"} disabled:opacity-50`}
+                      >
+                        {isDeactivating ? (
+                          <div className="flex items-center justify-center">
+                            <span className="loader-white"></span>
+                          </div>
+                        ) : (
+                          "Deactivate"
+                        )}
+                      </button>
+                    </div>
+                  )}
+
+                {selectedUser.status === "registered" &&
+                  !selectedUser.isActive && (
+                    <div className="flex flex-col">
+                      <span className="block text-start text-[14px] font-semibold text-gray-700">
+                        Activate this Account?
+                      </span>
+
+                      <div className="mt-1 text-start text-[11px] text-gray-400">
+                        Approving this account will grant the user access to the
+                        system based on their assigned position. You can
+                        deactivate it at any time.
+                      </div>
+
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          handleActivateUser(selectedUser.userID);
+                        }}
+                        disabled={isActivating}
+                        className={`mt-2 w-full cursor-pointer rounded-lg py-2 text-[14px] font-semibold text-white transition-all duration-100 ease-in-out ${isActivating ? "cursor-not-allowed bg-gray-500" : "bg-green-500 hover:bg-green-700 active:scale-98"} disabled:opacity-50`}
+                      >
+                        {isActivating ? (
+                          <div className="flex items-center justify-center">
+                            <span className="loader-white"></span>
+                          </div>
+                        ) : (
+                          "Activate"
+                        )}
+                      </button>
+                    </div>
+                  )}
+              </form>
             </div>
           </div>
-        </div>
+        </>
       )}
 
       <div className="rounded-t-sm border border-b-0 border-[rgb(200,200,200)] bg-white px-5 py-3 text-[12px] shadow-sm sm:text-[14px]">
-        {pendingUsersCount > 0
-          ? `${pendingUsersCount} User${pendingUsersCount !== 1 ? "s" : ""} Pending`
-          : " All users approved"}
+        <span className="ml-0 text-sm font-medium text-gray-600">
+          {statusFilter === "pending"
+            ? `${totalUsers} Pending User${totalUsers !== 1 ? "s" : ""}`
+            : statusFilter === "registered"
+              ? `${totalUsers} Approved User${totalUsers !== 1 ? "s" : ""}`
+              : `${totalUsers} Total User${totalUsers !== 1 ? "s" : ""}`}
+        </span>
       </div>
 
       {/* User Table Mobile */}
       <div className="min-[1000px]:hidden">
-        {filteredTableUsers.map((user) => (
-          <div
-            key={user.userID}
-            className="flex items-center justify-between border border-gray-300 bg-white p-4 shadow-sm"
-          >
-            <div className="flex items-center space-x-3 overflow-hidden">
-              <input
-                type="checkbox"
-                className="mt-1"
-                checked={selectedUsers.includes(user.userID)}
-                onChange={() => handleCheckboxChange(user.userID)}
-              />
-              <div className="truncate">
-                <div className="max-w-[220px] truncate text-[12px] font-semibold text-gray-800 sm:max-w-full">
-                  {user.firstName} {user.lastName}
-                </div>
+        {loading || searchLoading || tabLoading ? (
+          <div className="flex items-center justify-center border border-gray-300 bg-white p-8 shadow-sm">
+            <div className="loader"></div>
+          </div>
+        ) : users.length === 0 ? (
+          <div className="border border-gray-300 bg-white p-4 text-center text-[14px] text-gray-700 shadow-sm">
+            No users found.
+          </div>
+        ) : (
+          users.map((user) => (
+            <div
+              key={user.userID}
+              className="flex items-center justify-between border border-gray-300 bg-white p-4 shadow-sm"
+            >
+              <div className="flex items-center space-x-3 overflow-hidden">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={selectedUsers.includes(user.userID)}
+                  onChange={() => handleCheckboxChange(user.userID)}
+                />
+                <div className="truncate">
+                  <div className="max-w-[220px] truncate text-[12px] font-semibold text-gray-800 sm:max-w-full">
+                    {user.firstName} {user.lastName}
+                  </div>
 
-                <div className="truncate text-[10px] text-gray-600">
-                  {user.program}
+                  <div className="truncate text-[10px] text-gray-600">
+                    {user.program}
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <button
-              onClick={() => {
-                setSelectedUser(user);
-                setShowModal(true);
-              }}
-              className="ml-2 text-gray-700"
-            >
-              <i className="bx bx-chevron-right text-[25px] leading-none"></i>
-            </button>
-          </div>
-        ))}
+              <button
+                onClick={() => {
+                  setSelectedUser(user);
+                  setShowModal(true);
+                }}
+                className="ml-2 cursor-pointer text-gray-700"
+              >
+                <button className="mr-3 flex w-full cursor-pointer items-center justify-center text-gray-700 hover:text-orange-500">
+                  <i className="bx bx-contact-book text-[25px] leading-none"></i>
+                </button>
+              </button>
+            </div>
+          ))
+        )}
       </div>
 
       {/* User Table Desktop */}
@@ -1025,7 +1327,7 @@ const UserList = () => {
         <table className="min-w-full table-fixed border border-[rgb(200,200,200)] bg-white shadow-md">
           <thead>
             <tr className="border-b border-[rgb(200,200,200)] bg-white text-[10px] text-[rgb(78,78,78)] sm:text-[12px]">
-              <th className="w-[5%] p-3 text-left">
+              <th className="w-[5%] px-2 py-3 text-left">
                 <input
                   className="ml-3"
                   type="checkbox"
@@ -1036,25 +1338,45 @@ const UserList = () => {
                   }
                 />
               </th>
-              <th className="w-[10%] p-3 text-left font-semibold text-nowrap">
+              <th className="w-[10%] px-2 py-3 text-left font-semibold text-nowrap">
                 USER CODE
               </th>
-              <th className="w-[15%] p-3 text-left font-semibold sm:hidden">
+              <th className="w-[15%] px-2 py-3 text-left font-semibold sm:hidden">
                 Full Name
               </th>
-              <th className="hidden max-w-[150px] truncate p-3 text-left font-semibold sm:table-cell">
+              <th className="hidden max-w-[150px] truncate px-2 py-3 text-left font-semibold sm:table-cell">
                 NAME
               </th>
-              <th className="w-[20%] p-3 text-left font-semibold">EMAIL</th>
-              <th className="w-[10%] p-3 text-left font-semibold">POSITION</th>
-              <th className="w-[10%] p-3 text-left font-semibold">CAMPUS</th>
-              <th className="w-[10%] p-3 text-center font-semibold">STATUS</th>
-              <th className="w-[10%] p-3 text-center font-semibold">PROGRAM</th>
-              <th className="w-[10%] p-3 text-center font-semibold">STATE</th>
+              <th className="w-[20%] px-2 py-1 text-left font-semibold">
+                EMAIL
+              </th>
+              <th className="w-[10%] px-2 py-1 text-left font-semibold">
+                POSITION
+              </th>
+              <th className="w-[10%] px-2 py-1 text-left font-semibold">
+                CAMPUS
+              </th>
+              <th className="w-[10%] px-2 py-1 text-center font-semibold">
+                STATUS
+              </th>
+              <th className="w-[10%] px-2 py-1 text-center font-semibold">
+                PROGRAM
+              </th>
+              <th className="w-[10%] px-2 py-1 text-center font-semibold">
+                STATE
+              </th>
             </tr>
           </thead>
           <tbody>
-            {users.length === 0 ? (
+            {loading || searchLoading || tabLoading ? (
+              <tr>
+                <td colSpan="11" className="py-8">
+                  <div className="flex items-center justify-center">
+                    <div className="loader"></div>
+                  </div>
+                </td>
+              </tr>
+            ) : users.length === 0 ? (
               <tr>
                 <td
                   colSpan="11"
@@ -1064,7 +1386,7 @@ const UserList = () => {
                 </td>
               </tr>
             ) : (
-              filteredTableUsers.map((user) => (
+              users.map((user) => (
                 <tr
                   key={user.userID}
                   className={`border-b border-[rgb(200,200,200)] text-[12px] text-[rgb(78,78,78)] transition-colors ${
@@ -1076,7 +1398,7 @@ const UserList = () => {
                 >
                   {/* Checkbox Column */}
                   <td
-                    className="hidden p-3 text-left sm:table-cell"
+                    className="hidden px-2 py-2 text-left sm:table-cell"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <input
@@ -1087,10 +1409,12 @@ const UserList = () => {
                     />
                   </td>
 
-                  <td className="p-3 text-left text-nowrap">{user.userCode}</td>
+                  <td className="px-2 py-2 text-left text-nowrap">
+                    {user.userCode}
+                  </td>
 
                   {/* Name with Tooltip */}
-                  <td className="max-w-[120px] truncate p-3 text-left text-nowrap">
+                  <td className="max-w-[120px] truncate px-2 py-2 text-left text-nowrap">
                     <Tooltip
                       content={`${user.firstName} ${user.lastName}`}
                       placement="top"
@@ -1100,16 +1424,20 @@ const UserList = () => {
                   </td>
 
                   {/* Email with Tooltip */}
-                  <td className="max-w-[120px] truncate p-3 text-left">
+                  <td className="max-w-[120px] truncate px-2 py-2 text-left">
                     <Tooltip content={user.email} placement="top">
                       <span>{user.email}</span>
                     </Tooltip>
                   </td>
 
-                  <td className="p-3 text-left text-nowrap">{user.role}</td>
-                  <td className="p-3 text-left text-nowrap">{user.campus}</td>
+                  <td className="px-2 py-2 text-left text-nowrap">
+                    {user.role}
+                  </td>
+                  <td className="px-2 py-2 text-left text-nowrap">
+                    {user.campus}
+                  </td>
 
-                  <td className="p-3 text-center font-semibold">
+                  <td className="px-2 py-2 text-center font-semibold">
                     <span
                       className={`rounded-md px-2 py-1 text-[12px] ${
                         user.status === "registered"
@@ -1127,9 +1455,9 @@ const UserList = () => {
                     </span>
                   </td>
 
-                  <td className="p-3 text-center">{user.program}</td>
+                  <td className="px-2 py-2 text-center">{user.program}</td>
 
-                  <td className="p-3 text-center">
+                  <td className="px-2 py-2 text-center">
                     {user.isActive ? (
                       <span className="text-green-500">Active</span>
                     ) : (
@@ -1137,15 +1465,15 @@ const UserList = () => {
                     )}
                   </td>
                   <td
-                    className="p-3 text-center"
+                    className="px-2 py-2 text-center"
                     onClick={(e) => {
                       e.stopPropagation();
                       setSelectedUser(user);
                       setShowModal(true);
                     }}
                   >
-                    <button className="text-gray-700 hover:text-orange-500">
-                      <i className="bx bx-chevron-right mr-3 text-[25px] leading-none"></i>
+                    <button className="mr-3 flex w-full cursor-pointer items-center justify-center text-gray-700 hover:text-orange-500">
+                      <i className="bx bx-contact-book text-[25px] leading-none"></i>
                     </button>
                   </td>
                 </tr>
@@ -1155,41 +1483,15 @@ const UserList = () => {
         </table>
       </div>
 
-      {isActivating && <LoadingOverlay show={isActivating} />}
-      {isApproving && <LoadingOverlay show={isApproving} />}
-      {isDeactivating && <LoadingOverlay show={isDeactivating} />}
-
       {isActivatingMultiple && <LoadingOverlay show={isActivatingMultiple} />}
       {isApprovingMultiple && <LoadingOverlay show={isApprovingMultiple} />}
       {isDeactivatingMultiple && (
         <LoadingOverlay show={isDeactivatingMultiple} />
       )}
 
-      {toast.message && (
-        <div
-          className={`fixed top-6 left-1/2 z-56 mx-auto flex max-w-md -translate-x-1/2 transform items-center justify-between rounded border border-l-4 bg-white px-4 py-2 shadow-md transition-opacity duration-1000 ease-in-out ${
-            toast.show ? "opacity-100" : "opacity-0"
-          } ${
-            toast.type === "success" ? "border-green-400" : "border-red-400"
-          }`}
-        >
-          <div className="flex items-center">
-            <i
-              className={`mr-3 text-[24px] ${
-                toast.type === "success"
-                  ? "bx bxs-check-circle text-green-400"
-                  : "bx bxs-error text-red-400"
-              }`}
-            ></i>
-            <div>
-              <p className="font-semibold text-gray-800">
-                {toast.type === "success" ? "Success" : "Error"}
-              </p>
-              <p className="mb-1 text-sm text-gray-600">{toast.message}</p>
-            </div>
-          </div>
-        </div>
-      )}
+      <Toast message={toast.message} type={toast.type} show={toast.show} />
+
+      {!loading && !error && renderPagination()}
     </div>
   );
 };

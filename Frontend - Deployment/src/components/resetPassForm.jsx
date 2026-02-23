@@ -3,8 +3,9 @@ import { useNavigate } from "react-router-dom";
 import univLogo from "../assets/univLogo.png";
 import AppVersion from "../components/appVersion";
 import collegeLogo from "/src/assets/college-logo.png";
+import Toast from "./Toast";
 
-// Reset PAssword Form
+// Reset Password Form
 const ResetPasswordPage = () => {
   const collegeLogo = new URL("/college-logo.png", import.meta.url).href;
 
@@ -13,13 +14,14 @@ const ResetPasswordPage = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { toast, showToast } = useToast();
 
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [confirmPasswordVisible, setConfirmPasswordVisible] = useState(false);
+  const [passwordTouched, setPasswordTouched] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
 
   useEffect(() => {
     const query = new URLSearchParams(window.location.search);
@@ -27,19 +29,48 @@ const ResetPasswordPage = () => {
     setEmail(query.get("email") || "");
   }, []);
 
+  // Add password validation function
+  const validatePassword = (value) => {
+    if (!value) {
+      return "Password is required";
+    }
+    if (value.length < 8) {
+      return "Password must be at least 8 characters long";
+    }
+    return "";
+  };
+
+  // Add password blur handler
+  const handlePasswordBlur = (e) => {
+    setPasswordTouched(true);
+    const error = validatePassword(e.target.value);
+    setPasswordError(error);
+  };
+
+  // Update password change handler
+  const handlePasswordChange = (e) => {
+    const newValue = e.target.value;
+    setPassword(newValue);
+    if (passwordTouched) {
+      const error = validatePassword(newValue);
+      setPasswordError(error);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setMessage("");
-    setError("");
     setLoading(true);
 
     if (password.length < 8) {
-      setError("Password must be at least 8 characters.");
+      setPasswordTouched(true);
+      setPasswordError("Password must be at least 8 characters long");
+      setLoading(false);
       return;
     }
 
     if (password !== passwordConfirmation) {
-      setError("Passwords do not match.");
+      setPasswordTouched(true);
+      setLoading(false);
       return;
     }
 
@@ -61,16 +92,19 @@ const ResetPasswordPage = () => {
       const data = await response.json();
 
       if (response.ok) {
-        setMessage(data.message || "Password reset successful!");
+        showToast(data.message || "Password reset successful!", "success");
 
         setTimeout(() => {
           window.location.href = "/";
-        }, 500);
+        }, 2500);
       } else {
-        setError(data.message || "Password reset failed.");
+        showToast(data.message || "Password reset failed.", "error");
       }
     } catch (err) {
-      setError("Something went wrong.");
+      showToast(
+        "Unstable network connection. Please check your internet connection and try again.",
+        "error",
+      );
     } finally {
       setLoading(false);
     }
@@ -81,7 +115,7 @@ const ResetPasswordPage = () => {
       <div className="relative hidden min-h-screen w-full bg-[url('/login-bg.png')] bg-cover bg-center bg-no-repeat lg:block">
         {/* Left Section */}
         <div className="flex min-h-screen flex-row">
-          <div className="mr-10 flex w-full flex-col items-center justify-center p-6 text-white lg:w-1/2">
+          <div className="mr-18 flex w-full flex-col items-center justify-center p-6 text-white lg:w-1/2">
             {/* Logos */}
             <div className="absolute top-3 left-3 flex items-center space-x-2">
               <img src={univLogo} alt="Logo 1" className="size-8" />
@@ -149,37 +183,59 @@ const ResetPasswordPage = () => {
                   </span>
                 </p>
 
-                <form className="mt-6 w-full max-w-sm">
-                  <div className="relative mb-4">
+                <form className="mt-6 w-full max-w-sm" onSubmit={handleSubmit}>
+                  <div className="relative mb-2">
                     <div className="relative">
                       <input
-                        className="peer mt-2 w-full rounded-xl border border-gray-300 px-4 py-[9px] text-base text-gray-900 placeholder-transparent transition-all duration-200 hover:border-gray-500 focus:border-[#FE6902] focus:outline-none"
                         type={passwordVisible ? "text" : "password"}
+                        className={`peer mt-2 w-full rounded-xl border px-4 py-[9px] text-base text-gray-900 placeholder-transparent transition-all duration-200 focus:outline-none ${
+                          passwordTouched && passwordError
+                            ? "border-red-500 focus:border-red-500"
+                            : "border-gray-300 hover:border-gray-500 focus:border-[#FE6902]"
+                        }`}
                         placeholder="New Password"
                         value={password}
-                        onChange={(e) => setPassword(e.target.value)}
+                        onChange={handlePasswordChange}
+                        onBlur={handlePasswordBlur}
                         required
                       />
                       <label
                         htmlFor="New Password"
-                        className="pointer-events-none absolute top-1/2 left-4 z-10 -translate-y-1/2 bg-white px-1 text-base text-gray-500 transition-all duration-200 peer-placeholder-shown:top-1/2 peer-placeholder-shown:mt-1 peer-placeholder-shown:text-base peer-focus:top-2 peer-focus:mt-0 peer-focus:text-xs peer-focus:text-[#FE6902] peer-[&:not(:placeholder-shown)]:top-2 peer-[&:not(:placeholder-shown)]:text-xs"
+                        className={`pointer-events-none absolute top-1/2 left-4 z-10 -translate-y-1/2 bg-white px-1 text-base transition-all duration-200 peer-placeholder-shown:top-1/2 peer-placeholder-shown:mt-1 peer-placeholder-shown:text-base peer-focus:top-2 peer-focus:mt-0 peer-focus:text-xs peer-[&:not(:placeholder-shown)]:top-2 peer-[&:not(:placeholder-shown)]:text-xs ${
+                          passwordTouched && passwordError
+                            ? "text-red-500 peer-focus:text-red-500"
+                            : "text-gray-500 peer-focus:text-[#FE6902]"
+                        }`}
                       >
                         New Password
                       </label>
-                      <div
-                        className="absolute top-[18px] right-3 cursor-pointer"
+                      <button
+                        type="button"
+                        className="absolute top-[18px] right-3 text-gray-400 transition-colors hover:text-gray-600"
                         onClick={() => setPasswordVisible(!passwordVisible)}
+                        tabIndex={-1}
                       >
                         <i
-                          className={`bx ${passwordVisible ? "bx-show text-orange-500" : "bx-hide"} text-[23px] text-gray-500`}
+                          className={`bx ${passwordVisible ? "bx-eye-alt text-orange-500" : "bx-eye-slash"} text-[23px]`}
                         ></i>
-                      </div>
+                      </button>
                     </div>
+                    {passwordTouched && passwordError && (
+                      <p className="mt-1 ml-3 text-start text-xs text-red-500">
+                        {passwordError}
+                      </p>
+                    )}
+                  </div>
 
-                    <div className="relative mt-3">
+                  <div className="relative mt-3 mb-7">
+                    <div className="relative">
                       <input
-                        className="peer mt-2 w-full rounded-xl border border-gray-300 px-4 py-[9px] text-base text-gray-900 placeholder-transparent transition-all duration-200 hover:border-gray-500 focus:border-[#FE6902] focus:outline-none"
                         type={confirmPasswordVisible ? "text" : "password"}
+                        className={`peer mt-2 w-full rounded-xl border px-4 py-[9px] text-base text-gray-900 placeholder-transparent transition-all duration-200 focus:outline-none ${
+                          passwordTouched && password !== passwordConfirmation
+                            ? "border-red-500 focus:border-red-500"
+                            : "border-gray-300 hover:border-gray-500 focus:border-[#FE6902]"
+                        }`}
                         placeholder="Confirm Password"
                         value={passwordConfirmation}
                         onChange={(e) =>
@@ -189,32 +245,43 @@ const ResetPasswordPage = () => {
                       />
                       <label
                         htmlFor="Confirm Password"
-                        className="pointer-events-none absolute top-1/2 left-4 z-10 -translate-y-1/2 bg-white px-1 text-base text-gray-500 transition-all duration-200 peer-placeholder-shown:top-1/2 peer-placeholder-shown:mt-1 peer-placeholder-shown:text-base peer-focus:top-2 peer-focus:mt-0 peer-focus:text-xs peer-focus:text-[#FE6902] peer-[&:not(:placeholder-shown)]:top-2 peer-[&:not(:placeholder-shown)]:text-xs"
+                        className={`pointer-events-none absolute top-1/2 left-4 z-10 -translate-y-1/2 bg-white px-1 text-base transition-all duration-200 peer-placeholder-shown:top-1/2 peer-placeholder-shown:mt-1 peer-placeholder-shown:text-base peer-focus:top-2 peer-focus:mt-0 peer-focus:text-xs peer-[&:not(:placeholder-shown)]:top-2 peer-[&:not(:placeholder-shown)]:text-xs ${
+                          passwordTouched && password !== passwordConfirmation
+                            ? "text-red-500 peer-focus:text-red-500"
+                            : "text-gray-500 peer-focus:text-[#FE6902]"
+                        }`}
                       >
                         Confirm Password
                       </label>
-                      <div
-                        className="absolute top-[18px] right-3 cursor-pointer"
+                      <button
+                        type="button"
+                        className="absolute top-[18px] right-3 text-gray-400 transition-colors hover:text-gray-600"
                         onClick={() =>
                           setConfirmPasswordVisible(!confirmPasswordVisible)
                         }
+                        tabIndex={-1}
                       >
                         <i
-                          className={`bx ${confirmPasswordVisible ? "bx-show" : "bx-hide"} text-[23px] text-orange-500`}
+                          className={`bx ${confirmPasswordVisible ? "bx-eye-alt text-orange-500" : "bx-eye-slash"} text-[23px]`}
                         ></i>
-                      </div>
+                      </button>
                     </div>
+                    {passwordTouched && password !== passwordConfirmation && (
+                      <p className="mt-1 ml-3 text-start text-xs text-red-500">
+                        Passwords do not match
+                      </p>
+                    )}
                   </div>
-
-                  {/* Login Button */}
+                  {/* Reset Button */}
                   <div className="mx-auto mt-2 mb-2 flex w-full items-center justify-center text-sm">
                     <button
                       type="submit"
+                      disabled={loading}
                       className="mb-1 w-full cursor-pointer rounded-xl bg-gradient-to-r from-[#ed3700] to-[#FE6902] py-[10px] text-base font-semibold text-white shadow-md transition-all duration-200 ease-in-out hover:brightness-150 active:scale-[0.98] active:shadow-sm disabled:opacity-60"
                     >
                       {loading ? (
                         <div className="flex items-center justify-center">
-                          <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+                          <span className="loader-white"></span>
                         </div>
                       ) : (
                         "Reset Password"
@@ -224,13 +291,18 @@ const ResetPasswordPage = () => {
 
                   <span className="mx-2 text-xs text-gray-400">
                     Developed by{" "}
-                    <span className="text-orange-500">Team Caps</span>
+                    <span
+                      onClick={() => navigate("/team-caps")}
+                      className="cursor-pointer text-orange-500 hover:underline"
+                    >
+                      Team Caps
+                    </span>
                   </span>
                 </form>
               </div>
             </div>
           </div>
-          <div className="absolute bottom-3 left-1/2 ml-5 flex -translate-x-1/2 transform items-center space-x-2 text-gray-500 lg:left-8">
+          <div className="absolute bottom-3 left-1/2 ml-8 flex -translate-x-1/2 transform items-center space-x-2 text-gray-500 lg:left-8">
             <AppVersion />
           </div>
         </div>
@@ -308,36 +380,54 @@ const ResetPasswordPage = () => {
               <div className="relative">
                 <input
                   type={passwordVisible ? "text" : "password"}
-                  className="peer mt-2 w-full rounded-xl border border-gray-300 px-4 py-[12px] text-base text-gray-900 placeholder-transparent transition-all duration-200 hover:border-gray-500 focus:border-[#FE6902] focus:outline-none"
+                  className={`peer mt-2 w-full rounded-xl border px-4 py-[12px] text-base text-gray-900 placeholder-transparent transition-all duration-200 focus:outline-none ${
+                    passwordTouched && passwordError
+                      ? "border-red-500 focus:border-red-500"
+                      : "border-gray-300 hover:border-gray-500 focus:border-[#FE6902]"
+                  }`}
                   placeholder="New Password"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={handlePasswordChange}
+                  onBlur={handlePasswordBlur}
                   required
                 />
                 <label
                   htmlFor="New Password"
-                  className="pointer-events-none absolute top-1/2 left-4 z-10 -translate-y-1/2 bg-white px-1 text-base text-gray-500 transition-all duration-200 peer-placeholder-shown:top-1/2 peer-placeholder-shown:mt-1 peer-placeholder-shown:text-base peer-focus:top-2 peer-focus:mt-0 peer-focus:text-xs peer-focus:text-[#FE6902] peer-[&:not(:placeholder-shown)]:top-2 peer-[&:not(:placeholder-shown)]:text-xs"
+                  className={`pointer-events-none absolute top-1/2 left-4 z-10 -translate-y-1/2 bg-white px-1 text-base transition-all duration-200 peer-placeholder-shown:top-1/2 peer-placeholder-shown:mt-1 peer-placeholder-shown:text-base peer-focus:top-2 peer-focus:mt-0 peer-focus:text-xs peer-[&:not(:placeholder-shown)]:top-2 peer-[&:not(:placeholder-shown)]:text-xs ${
+                    passwordTouched && passwordError
+                      ? "text-red-500 peer-focus:text-red-500"
+                      : "text-gray-500 peer-focus:text-[#FE6902]"
+                  }`}
                 >
                   New Password
                 </label>
                 <button
                   type="button"
-                  className="absolute top-[21px] right-3 text-gray-400"
+                  className="absolute top-[21px] right-3 text-gray-400 transition-colors hover:text-gray-600"
                   onClick={() => setPasswordVisible(!passwordVisible)}
                   tabIndex={-1}
                 >
                   <i
-                    className={`bx ${passwordVisible ? "bx-show text-orange-500" : "bx-hide"} text-[25px]`}
+                    className={`bx ${passwordVisible ? "bx-eye-alt text-orange-500" : "bx-eye-slash"} text-[25px]`}
                   ></i>
                 </button>
               </div>
+              {passwordTouched && passwordError && (
+                <p className="mt-1 ml-3 text-xs text-red-500">
+                  {passwordError}
+                </p>
+              )}
             </div>
 
             <div className="relative w-full">
               <div className="relative">
                 <input
                   type={confirmPasswordVisible ? "text" : "password"}
-                  className="peer mt-2 w-full rounded-xl border border-gray-300 px-4 py-[12px] text-base text-gray-900 placeholder-transparent transition-all duration-200 hover:border-gray-500 focus:border-[#FE6902] focus:outline-none"
+                  className={`peer mt-2 w-full rounded-xl border px-4 py-[12px] text-base text-gray-900 placeholder-transparent transition-all duration-200 focus:outline-none ${
+                    passwordTouched && password !== passwordConfirmation
+                      ? "border-red-500 focus:border-red-500"
+                      : "border-gray-300 hover:border-gray-500 focus:border-[#FE6902]"
+                  }`}
                   placeholder="Confirm Password"
                   value={passwordConfirmation}
                   onChange={(e) => setPasswordConfirmation(e.target.value)}
@@ -345,30 +435,38 @@ const ResetPasswordPage = () => {
                 />
                 <label
                   htmlFor="Confirm Password"
-                  className="pointer-events-none absolute top-1/2 left-4 z-10 -translate-y-1/2 bg-white px-1 text-base text-gray-500 transition-all duration-200 peer-placeholder-shown:top-1/2 peer-placeholder-shown:mt-1 peer-placeholder-shown:text-base peer-focus:top-2 peer-focus:mt-0 peer-focus:text-xs peer-focus:text-[#FE6902] peer-[&:not(:placeholder-shown)]:top-2 peer-[&:not(:placeholder-shown)]:text-xs"
+                  className={`pointer-events-none absolute top-1/2 left-4 z-10 -translate-y-1/2 bg-white px-1 text-base transition-all duration-200 peer-placeholder-shown:top-1/2 peer-placeholder-shown:mt-1 peer-placeholder-shown:text-base peer-focus:top-2 peer-focus:mt-0 peer-focus:text-xs peer-[&:not(:placeholder-shown)]:top-2 peer-[&:not(:placeholder-shown)]:text-xs ${
+                    passwordTouched && password !== passwordConfirmation
+                      ? "text-red-500 peer-focus:text-red-500"
+                      : "text-gray-500 peer-focus:text-[#FE6902]"
+                  }`}
                 >
                   Confirm Password
                 </label>
                 <button
                   type="button"
-                  className="absolute top-[21px] right-3 text-gray-400"
+                  className="absolute top-[21px] right-3 text-gray-400 transition-colors hover:text-gray-600"
                   onClick={() =>
                     setConfirmPasswordVisible(!confirmPasswordVisible)
                   }
                   tabIndex={-1}
                 >
                   <i
-                    className={`bx ${confirmPasswordVisible ? "bx-show text-orange-500" : "bx-hide"} text-[25px]`}
+                    className={`bx ${confirmPasswordVisible ? "bx-eye-alt text-orange-500" : "bx-eye-slash"} text-[25px]`}
                   ></i>
                 </button>
               </div>
+              {passwordTouched && password !== passwordConfirmation && (
+                <p className="mt-1 ml-3 text-xs text-red-500">
+                  Passwords do not match
+                </p>
+              )}
             </div>
 
-            {error && (
-              <p className="text-center text-xs text-red-500">{error}</p>
-            )}
-            {message && (
-              <p className="text-center text-xs text-green-500">{message}</p>
+            {loading && (
+              <div className="flex items-center justify-center">
+                <span className="loader-white"></span>
+              </div>
             )}
 
             <button
@@ -378,7 +476,7 @@ const ResetPasswordPage = () => {
             >
               {loading ? (
                 <div className="flex items-center justify-center">
-                  <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+                  <span className="loader-white"></span>
                 </div>
               ) : (
                 "Reset Password"
@@ -395,10 +493,18 @@ const ResetPasswordPage = () => {
           </div>
 
           <span className="mx-2 text-xs text-gray-400">
-            Developed by <span className="text-orange-500">Team Caps</span>
+            Developed by{" "}
+            <span
+              onClick={() => navigate("/team-caps")}
+              className="cursor-pointer text-orange-500 hover:underline"
+            >
+              Team Caps
+            </span>
           </span>
         </div>
       </div>
+
+      <Toast message={toast.message} type={toast.type} show={toast.show} />
     </>
   );
 };

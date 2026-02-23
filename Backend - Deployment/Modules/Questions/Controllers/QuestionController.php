@@ -23,7 +23,7 @@ class QuestionController extends Controller
     // Store a new question into the database
     public function store(Request $request)
     {
-        $this->authorizeRoles([2, 3, 4]);
+        $this->authorizeRoles([2, 3, 4, 5]);
 
         $validated = $request->validate([
             'subjectID' => 'required|exists:subjects,subjectID',
@@ -121,11 +121,16 @@ class QuestionController extends Controller
             $question->purpose_id = $validated['purpose_id'];
         }
 
-        // Always set status to pending on update
+        // Always set status to pending on update and record who edited it
         $pendingStatus = Status::where('name', 'pending')->first();
         if ($pendingStatus) {
             $question->status_id = $pendingStatus->id;
         }
+        
+        // Record who last edited the question
+        $question->editedBy = Auth::id();
+        // Clear approvedBy when question is edited since it needs to be re-approved
+        $question->approvedBy = null;
 
         $question->save();
 
@@ -138,40 +143,63 @@ class QuestionController extends Controller
     // List all questions for a subject, remove those without choices
     public function indexQuestions($subjectID)
     {
-        $subject = Subject::find($subjectID);
-        if (!$subject) {
-            return response()->json(['message' => 'Subject not found.'], 404);
+        $subject = Subject::findOrFail($subjectID);
+
+        // Check if user is Program Chair or Associate Dean
+        $user = Auth::user();
+        $isProgramChair = $user->roleID === 3;
+        $isAssociateDean = $user->roleID === 5;
+
+        // Base query with relationships
+        $query = Question::with([
+                'subject', 
+                'choices', 
+                'user', 
+                'status', 
+                'difficulty', 
+                'coverage', 
+                'purpose',
+                'editor' => function($query) {
+                    $query->select('userID', 'firstName', 'lastName');
+                },
+                'approver' => function($query) {
+                    $query->select('userID', 'firstName', 'lastName');
+                }
+            ])
+            ->where('subjectID', $subjectID)
+            ->whereHas('choices');
+
+        // Apply program-based filtering for Program Chairs
+        if ($isProgramChair) {
+            $query->whereHas('user', function($q) use ($user) {
+                $q->where('programID', $user->programID);
+            });
         }
 
-        // Delete questions with no choices
-        Question::where('subjectID', $subjectID)
-            ->doesntHave('choices')
-            ->each(function ($q) {
-                if ($q->image) {
-                    Storage::disk('public')->delete($q->image);
-                }
-                $q->delete();
+        // Apply campus-based filtering for Associate Deans
+        if ($isAssociateDean) {
+            $query->whereHas('user', function($q) use ($user) {
+                $q->where('campusID', $user->campusID);
             });
+        }
 
-        // Get questions with choices only
-        $questions = Question::with(['subject', 'choices', 'user', 'status', 'difficulty', 'coverage', 'purpose'])
-            ->where('subjectID', $subjectID)
+        $questions = $query->orderBy('created_at', 'desc')
             ->get()
-            ->reject(fn($q) => $q->choices->isEmpty())
-            ->map(fn($q) => $this->formatQuestion($q))
-            ->values();
+            ->map(fn($q) => $this->formatQuestion($q));
 
         return response()->json([
             'message' => 'Questions retrieved successfully.',
             'subject' => $subject->subjectName,
-            'data' => $questions
+            'total_questions' => $questions->count(),
+            'data' => $questions,
+            'last_updated' => $questions->max('updated_at')
         ]);
     }
 
     // Delete a specific question
     public function destroy($questionID)
     {
-        $this->authorizeRoles([2, 3, 4]);
+        $this->authorizeRoles([2, 3, 4, 5]);
 
         $question = Question::find($questionID);
         if (!$question) {
@@ -213,10 +241,10 @@ class QuestionController extends Controller
         ], 200);
     }
 
-    // Approve a question if it's pending and not owned by the current user
+    // Approve a question if it's pending and not edited by the current user
     public function updateStatus($questionID)
     {
-        $this->authorizeRoles([3, 4]);
+        $this->authorizeRoles([3, 4, 5]);
 
         $question = Question::find($questionID);
         if (!$question) {
@@ -231,13 +259,22 @@ class QuestionController extends Controller
             ], 400);
         }
 
-        if (Auth::id() === $question->userID) {
+        // Check if the current user is the creator and the question hasn't been edited yet
+        if (Auth::id() === $question->userID && !$question->editedBy) {
             return response()->json(['message' => 'You cannot approve your own question.'], 403);
+        }
+
+        // Check if the current user is the one who last edited the question
+        if (Auth::id() === $question->editedBy) {
+            return response()->json(['message' => 'You cannot approve a question you last edited.'], 403);
         }
 
         $approvedStatus = Status::where('name', 'approved')->first();
         if ($approvedStatus) {
-            $question->update(['status_id' => $approvedStatus->id]);
+            $question->status_id = $approvedStatus->id;
+            // Update the approvedBy field with the current user
+            $question->approvedBy = Auth::id();
+            $question->save();
         }
 
         return response()->json(['message' => 'Question approved.', 'question' => $this->formatQuestion($question)]);
@@ -287,7 +324,7 @@ class QuestionController extends Controller
      */
     public function duplicate(Request $request, $questionID)
     {
-        $this->authorizeRoles([2, 3, 4]);
+        $this->authorizeRoles([2, 3, 4, 5]);
 
         try {
             // Validate optional modifications
@@ -313,8 +350,13 @@ class QuestionController extends Controller
 
             // Create new question with modifications
             $newQuestion = $originalQuestion->replicate();
+            // Set the current user as the creator of the duplicated question
             $newQuestion->userID = Auth::id();
+            // Set initial status as pending
             $newQuestion->status_id = Status::where('name', 'pending')->first()->id;
+            // Clear editor and approver information for the new question
+            $newQuestion->editedBy = null;
+            $newQuestion->approvedBy = null;
 
             // Apply modifications if provided
             if (isset($validated['questionText'])) {
@@ -477,7 +519,7 @@ class QuestionController extends Controller
                 ->find($newQuestion->questionID);
 
             return response()->json([
-                'message' => 'Question duplicated successfully with modifications.',
+                'message' => 'Question duplicated successfully. You are now set as the creator of this new question.',
                 'data' => $this->formatQuestion($newQuestion)
             ], 201)->header('Content-Type', 'application/json');
 
@@ -490,6 +532,126 @@ class QuestionController extends Controller
                 'error' => $e->getMessage()
             ], 500)->header('Content-Type', 'application/json');
         }
+    }
+
+    /**
+     * Preview all questions from a student's perspective
+     * This function is accessible to faculty, program chair, and dean
+     * 
+     * @param Request $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function previewAllQuestions(Request $request)
+    {
+        $this->authorizeRoles([2, 3, 4, 5]); // Only faculty, program chair, and dean
+
+        try {
+            $query = Question::with([
+                'subject',
+                'choices',
+                'status',
+                'difficulty',
+                'coverage',
+                'purpose',
+                'user' => function($query) {
+                    $query->select('userID', 'firstName', 'lastName', 'programID');
+                }
+            ])->whereHas('status', function($query) {
+                $query->where('name', 'approved');
+            });
+
+            // If user is Program Chair, only show questions from their program
+            if (Auth::user()->roleID === 3) {
+                $query->whereHas('user', function($q) {
+                    $q->where('programID', Auth::user()->programID)
+                      ->orWhere('programID', 6); // Include general education questions
+                });
+            }
+
+            // Group questions by subject
+            $questions = $query->get()
+                ->groupBy('subjectID')
+                ->map(function($subjectQuestions) {
+                    $subject = $subjectQuestions->first()->subject;
+                    
+                    // Group questions by coverage (midterm/finals)
+                    $questionsByCoverage = $subjectQuestions->groupBy(function($q) {
+                        return $q->coverage->name;
+                    })->map(function($coverageQuestions) {
+                        // Group by difficulty
+                        return $coverageQuestions->groupBy(function($q) {
+                            return $q->difficulty->name;
+                        })->map(function($questions) {
+                            return $questions->map(function($q) {
+                                return $this->formatQuestionForPreview($q);
+                            });
+                        });
+                    });
+
+                    return [
+                        'subjectName' => $subject->subjectName,
+                        'subjectCode' => $subject->subjectCode,
+                        'questions' => $questionsByCoverage
+                    ];
+                });
+
+            return response()->json([
+                'message' => 'Questions preview retrieved successfully.',
+                'data' => $questions
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Question Preview Error: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Failed to retrieve questions preview.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Format question for preview display
+     * Similar to formatQuestion but with additional student-perspective formatting
+     */
+    private function formatQuestionForPreview($question)
+    {
+        try {
+            $questionText = Crypt::decryptString($question->questionText);
+        } catch (\Exception $e) {
+            $questionText = '[Decryption Error]';
+            Log::error("Question decrypt error ID{$question->questionID}: {$e->getMessage()}");
+        }
+
+        // Format choices like they would appear to students
+        $choices = $question->choices->map(function($choice) {
+            try {
+                $text = $choice->choiceText ? Crypt::decryptString($choice->choiceText) : null;
+            } catch (\Exception $e) {
+                $text = null;
+            }
+
+            return [
+                'text' => $text,
+                'image' => $this->generateUrl($choice->image),
+                'position' => $choice->position,
+                'isCorrect' => $choice->isCorrect // Include correct answer for faculty review
+            ];
+        })->sortBy('position')->values();
+
+        return [
+            'questionID' => $question->questionID,
+            'questionText' => $questionText,
+            'questionImage' => $this->generateUrl($question->image),
+            'score' => $question->score,
+            'difficulty' => $question->difficulty->name,
+            'coverage' => $question->coverage->name,
+            'purpose' => $question->purpose->name,
+            'choices' => $choices,
+            'creator' => [
+                'name' => $question->user->firstName . ' ' . $question->user->lastName,
+                'program' => $question->user->programID
+            ]
+        ];
     }
 
     // ============ PRIVATE HELPERS ============
@@ -532,6 +694,10 @@ class QuestionController extends Controller
 
         $question->image = $this->generateUrl($question->image);
         $question->creatorName = optional($question->user)->firstName . ' ' . optional($question->user)->lastName;
+        
+        // Add editor and approver information
+        $question->editorName = optional($question->editor)->firstName . ' ' . optional($question->editor)->lastName;
+        $question->approverName = optional($question->approver)->firstName . ' ' . optional($question->approver)->lastName;
 
         // Add related model names for easier frontend handling
         $question->status_name = optional($question->status)->name;

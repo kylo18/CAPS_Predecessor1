@@ -3,21 +3,20 @@ import { useNavigate } from "react-router-dom";
 import univLogo from "../assets/univLogo.png";
 import AppVersion from "../components/appVersion";
 import collegeLogo from "/src/assets/college-logo.png";
+import Toast from "./Toast";
+import useToast from "../hooks/useToast";
 
 const ForgotPasswordForm = () => {
   const apiUrl = import.meta.env.VITE_API_BASE_URL;
-  const [isError, setIsError] = useState(false);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { toast, showToast } = useToast();
 
   const [email, setEmail] = useState("");
-  const [message, setMessage] = useState("");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    setMessage("");
-    setIsError(false);
 
     try {
       const res = await fetch(`${apiUrl}/forgot-password`, {
@@ -27,13 +26,24 @@ const ForgotPasswordForm = () => {
       });
 
       const data = await res.json();
-      setIsError(!res.ok);
-      setMessage(
-        data.message || "Something went wrong. Please try again later.",
+
+      if (!res.ok) {
+        showToast(
+          data.message || "Something went wrong. Please try again later.",
+          "error",
+        );
+        return;
+      }
+
+      showToast(
+        data.message || "Password reset link sent successfully!",
+        "success",
       );
     } catch (error) {
-      setIsError(true);
-      setMessage("Something went wrong. Please try again later.");
+      showToast(
+        "Unstable network connection. Please check your internet connection and try again.",
+        "error",
+      );
     } finally {
       setLoading(false);
     }
@@ -41,10 +51,11 @@ const ForgotPasswordForm = () => {
 
   return (
     <>
+      <Toast message={toast.message} type={toast.type} show={toast.show} />
       <div className="relative hidden min-h-screen w-full bg-[url('/login-bg.png')] bg-cover bg-center bg-no-repeat lg:block">
         {/* Left Section */}
         <div className="flex min-h-screen flex-row">
-          <div className="mr-10 flex w-full flex-col items-center justify-center p-6 text-white lg:w-1/2">
+          <div className="mr-18 flex w-full flex-col items-center justify-center p-6 text-white lg:w-1/2">
             {/* Logos */}
             <div className="absolute top-3 left-3 flex items-center space-x-2">
               <img src={univLogo} alt="Logo 1" className="size-8" />
@@ -112,7 +123,7 @@ const ForgotPasswordForm = () => {
                   </span>
                 </p>
 
-                <form className="mt-6 w-full max-w-sm">
+                <form className="mt-6 w-full max-w-sm" onSubmit={handleSubmit}>
                   {/* ID Number Input */}
                   <div className="relative mb-4">
                     <div className="relative">
@@ -140,7 +151,7 @@ const ForgotPasswordForm = () => {
                     >
                       {loading ? (
                         <div className="flex items-center justify-center">
-                          <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+                          <span className="loader-white"></span>
                         </div>
                       ) : (
                         "Send Reset Link"
@@ -148,23 +159,27 @@ const ForgotPasswordForm = () => {
                     </button>
                   </div>
                   <p className="mt-4 mb-4 justify-center text-center text-[14px] text-gray-600">
-                    Don't have an account?{" "}
                     <span
-                      onClick={() => navigate("/register")}
+                      onClick={() => navigate("/")}
                       className="cursor-pointer text-orange-500 hover:underline"
                     >
-                      Register here
+                      Back to Login
                     </span>
                   </p>
                   <span className="mx-2 text-xs text-gray-400">
                     Developed by{" "}
-                    <span className="text-orange-500">Team Caps</span>
+                    <span
+                      onClick={() => navigate("/team-caps")}
+                      className="cursor-pointer text-orange-500 hover:underline"
+                    >
+                      Team Caps
+                    </span>
                   </span>
                 </form>
               </div>
             </div>
           </div>
-          <div className="absolute bottom-3 left-1/2 ml-5 flex -translate-x-1/2 transform items-center space-x-2 text-gray-500 lg:left-8">
+          <div className="absolute bottom-3 left-1/2 ml-8 flex -translate-x-1/2 transform items-center space-x-2 text-gray-500 lg:left-8">
             <AppVersion />
           </div>
         </div>
@@ -268,27 +283,28 @@ const ForgotPasswordForm = () => {
               </div>
             </div>
 
-            {message && (
-              <p
-                className={`text-center text-xs ${isError ? "text-red-500" : "text-green-500"}`}
-              >
-                {message}
-              </p>
-            )}
-
             <button
               type="submit"
               disabled={loading}
-              className="mt-3 mb-4 w-full cursor-pointer rounded-xl bg-gradient-to-r from-[#ed3700] to-[#FE6902] py-3 text-base font-semibold text-white shadow-md transition-all duration-200 ease-in-out hover:brightness-150 active:scale-[0.98] active:shadow-sm disabled:opacity-60"
+              className="mt-3 w-full cursor-pointer rounded-xl bg-gradient-to-r from-[#ed3700] to-[#FE6902] py-3 text-base font-semibold text-white shadow-md transition-all duration-200 ease-in-out hover:brightness-150 active:scale-[0.98] active:shadow-sm disabled:opacity-60"
             >
               {loading ? (
                 <div className="flex items-center justify-center">
-                  <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+                  <span className="loader-white"></span>
                 </div>
               ) : (
                 "Send Reset Link"
               )}
             </button>
+
+            <p className="mb-4 justify-center text-center text-[14px] text-gray-600">
+              <span
+                onClick={() => navigate("/")}
+                className="cursor-pointer text-orange-500 hover:underline"
+              >
+                Back to Login
+              </span>
+            </p>
           </form>
 
           <div className="my-2 flex w-full items-center">
@@ -299,8 +315,14 @@ const ForgotPasswordForm = () => {
             <div className="h-px flex-1 bg-gray-200"></div>
           </div>
 
-          <span className="mx-2 text-xs text-gray-400">
-            Developed by <span className="text-orange-500">Team Caps</span>
+          <span className="mx-2 mt-3 text-xs text-gray-400">
+            Developed by{" "}
+            <span
+              onClick={() => navigate("/team-caps")}
+              className="cursor-pointer text-orange-500 hover:underline"
+            >
+              Team Caps
+            </span>
           </span>
         </div>
       </div>

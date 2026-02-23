@@ -2,9 +2,11 @@ import { useEffect, useState, useRef } from "react";
 import Button from "./button";
 import { useNavigate } from "react-router-dom";
 import LoadingOverlay from "./loadingOverlay";
-import { Tooltip } from "flowbite-react";
+import Tooltip from "./toolTip";
 import { createPortal } from "react-dom";
 import SideBarToolTip from "./sidebarTooltip";
+import Toast from "./Toast";
+import useToast from "../hooks/useToast";
 
 const AssignedSubjectsDropDown = ({
   item,
@@ -30,6 +32,7 @@ const AssignedSubjectsDropDown = ({
   const [selectedSubjectForAssignment, setSelectedSubjectForAssignment] =
     useState(null);
   const [openMenuID, setOpenMenuID] = useState(null);
+  const { toast, showToast } = useToast();
 
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [subjectToDelete, setSubjectToDelete] = useState(null);
@@ -44,44 +47,12 @@ const AssignedSubjectsDropDown = ({
 
   const [dropdownDirection, setDropdownDirection] = useState("down"); // "down" or "up"
   const [searchUnassigned, setSearchUnassigned] = useState("");
-  const [toast, setToast] = useState({
-    message: "",
-    type: "",
-    show: false,
-  });
 
-  // Add new state variables for year level functionality
   const [selectedYearLevel, setSelectedYearLevel] = useState(null);
   const [showYearSubjects, setShowYearSubjects] = useState(false);
   const [yearLevelPosition, setYearLevelPosition] = useState({ x: 0, y: 0 });
 
-  // Hardcoded year levels
   const yearLevelOptions = ["1", "2", "3", "4"];
-
-  // Group subjects by year level
-  const yearLevelGroups = assignedSubjects.reduce((acc, subject) => {
-    const yearLevel = subject.yearLevelID || "Unassigned";
-    if (!acc[yearLevel]) {
-      acc[yearLevel] = [];
-    }
-    acc[yearLevel].push(subject);
-    return acc;
-  }, {});
-
-  useEffect(() => {
-    if (toast.message) {
-      setToast((prev) => ({ ...prev, show: true }));
-
-      const timer = setTimeout(() => {
-        setToast((prev) => ({ ...prev, show: false }));
-        setTimeout(() => {
-          setToast({ message: "", type: "", show: false });
-        }, 500);
-      }, 2500);
-
-      return () => clearTimeout(timer);
-    }
-  }, [toast.message]);
 
   const handleEditClick = (subject) => {
     setEditingSubject(subject.subjectID);
@@ -123,11 +94,6 @@ const AssignedSubjectsDropDown = ({
       }
 
       const data = await response.json();
-
-      if (!data.success) {
-        console.error("Error fetching subjects:", data.message);
-        return;
-      }
 
       if (!Array.isArray(data.subjects)) {
         console.error("Unexpected subjects data format:", data);
@@ -191,8 +157,6 @@ const AssignedSubjectsDropDown = ({
       setIsOpen(false);
       setSearchTerm("");
       setFilteredSubjects(subjects);
-      setShowYearSubjects(false);
-      setOpenMenuID(null);
       if (listRef.current) {
         listRef.current.scrollTo({ top: 0, behavior: "smooth" });
       }
@@ -228,7 +192,12 @@ const AssignedSubjectsDropDown = ({
     }
   }, [isOpen]);
 
-  const unassignedSubjects = subjects.filter((subject) => !subject.isAssigned);
+  const unassignedSubjects = subjects.filter(
+    (subject) =>
+      !assignedSubjects.some(
+        (assigned) => assigned.subjectID === subject.subjectID,
+      ),
+  );
 
   const handleSelectSubject = (subject) => {
     setSelectedSubject(subject);
@@ -278,7 +247,6 @@ const AssignedSubjectsDropDown = ({
 
   const handleAssignSubject = async (subject) => {
     if (!subject) return;
-    console.log("Assigning subject:", subject);
 
     const token = localStorage.getItem("token");
 
@@ -298,41 +266,33 @@ const AssignedSubjectsDropDown = ({
       if (response.ok) {
         const result = await response.json();
 
-        // Refresh both assigned and available subjects
-        await Promise.all([fetchAssignedSubjects(), fetchSubjects()]);
+        await fetchAssignedSubjects();
 
         setSelectedSubjectForAssignment(null);
-        setShowAddModal(false);
 
-        setToast({
-          message: result.message || "Subject assigned successfully",
-          type: "success",
-          show: true,
-        });
+        showToast(result.message || "Subject assigned successfully", "success");
       } else {
         console.error("Failed to assign subject:", response.status);
-        setToast({
-          message: "Failed to assign subject",
-          type: "error",
-          show: true,
-        });
+        showToast("Failed to assign subject", "error");
       }
     } catch (error) {
       console.error("Error assigning subject:", error);
-      setToast({
-        message: "An error occurred while assigning subject",
-        type: "error",
-        show: true,
-      });
+      showToast("An error occurred while assigning subject", "error");
     } finally {
       setIsAssigning(false);
     }
   };
 
+  useEffect(() => {
+    if (!isExpanded) {
+      setShowYearSubjects(false);
+    }
+  }, [isExpanded]);
+
   return (
-    <div className="mt-[2px]">
+    <div className="-mt-2">
       <li
-        className="relative flex items-center gap-3 rounded px-[4px] py-[1px] hover:bg-[rgb(255,230,214)] hover:text-gray-700"
+        className="relative flex cursor-pointer items-center gap-3 rounded px-[4px] py-[1px] hover:text-gray-700"
         onClick={() => {
           if (!isExpanded || !isOpen) {
             setIsExpanded(true);
@@ -391,11 +351,12 @@ const AssignedSubjectsDropDown = ({
           <Tooltip
             content={<span className="whitespace-nowrap">Assign Subject</span>}
             placement="left"
-            className="z-[100]"
+            className="z-70"
           >
             <div
               className="cursor-pointer justify-center rounded-sm bg-orange-500 px-[7px] py-[3px] text-center text-white transition-all hover:bg-orange-600"
               onClick={() => {
+                setSearchTerm("");
                 setShowAddModal(true);
                 setShowYearSubjects(false);
               }}
@@ -405,27 +366,24 @@ const AssignedSubjectsDropDown = ({
           </Tooltip>
         </div>
 
-        <div className="mt-4 h-[1px] w-full bg-[rgb(200,200,200)]"></div>
-
+        {/* Year Level List or Search Results */}
         <ul
           ref={listRef}
           className={`scrollbar-show-on-hover mx-auto mt-2 w-full flex-grow pr-2 text-[14px] font-semibold text-gray-700 transition-all duration-100 ease-in-out ${!isExpanded ? "hidden" : ""}`}
         >
           {subjectLoading ? (
-            <li className="mt-3 animate-pulse p-2 text-center text-[14px] text-[rgb(168,168,168)]">
-              <div className="flex items-center justify-center">
-                <span>Loading</span>
-                <div className="ml-2 size-4 animate-spin rounded-full border-3 border-t-transparent"></div>
+            <div className="flex h-[300px] items-start justify-center">
+              <div className="mt-4 flex flex-col items-center gap-2">
+                <div className="loader"></div>
               </div>
-            </li>
+            </div>
           ) : searchTerm.trim() ? (
             // Show filtered subjects when searching
             filteredSubjects.map((subject) => (
               <li
                 key={subject.subjectID}
-                className={`group relative mt-2 mr-1 flex cursor-pointer items-center justify-between rounded-md p-[7px] transition-all duration-100 ease-in-out ${
-                  selectedSubject &&
-                  selectedSubject.subjectID === subject.subjectID
+                className={`group relative mt-2 mr-1 flex items-center justify-between rounded-sm px-[4px] py-[5px] transition-all duration-100 ease-in-out ${
+                  selectedSubject?.subjectID === subject.subjectID
                     ? "bg-orange-500 text-white"
                     : "hover:bg-[rgb(255,230,214)]"
                 }`}
@@ -435,30 +393,9 @@ const AssignedSubjectsDropDown = ({
                   navigate(homePath);
                 }}
               >
-                <span className="ml-1 flex-1 cursor-pointer break-all">
-                  {subject.yearLevel} {subject.programName} -{" "}
-                  {subject.subjectCode}
+                <span className="ml-2 flex-1 cursor-pointer break-all">
+                  {subject.programName} - {subject.subjectCode}
                 </span>
-
-                {/* 3-dot menu */}
-                <div className="relative" onClick={(e) => e.stopPropagation()}>
-                  <button
-                    className={`flex items-center justify-center rounded-full transition ${selectedSubject?.subjectID === subject.subjectID ? "visible" : "invisible group-hover:visible"}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      const menuHeight = 80;
-                      const spaceBelow = window.innerHeight - rect.bottom;
-                      const direction = spaceBelow < menuHeight ? "up" : "down";
-                      setDropdownDirection(direction);
-                      setDropdownPosition({ x: rect.right, y: rect.bottom });
-                      setDropdownSubject(subject);
-                      setOpenMenuID(subject.subjectID);
-                    }}
-                  >
-                    <i className="bx bx-dots-vertical-rounded cursor-pointer text-[18px]"></i>
-                  </button>
-                </div>
               </li>
             ))
           ) : (
@@ -492,7 +429,7 @@ const AssignedSubjectsDropDown = ({
                   }}
                   className="border-color flex w-full cursor-pointer items-center justify-center gap-2 rounded-md border px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
                 >
-                  <i className="bx bx-refresh text-lg"></i>
+                  <i className="bx bx-refresh-ccw text-lg"></i>
                   <span className="text-[14px]">Refresh</span>
                 </button>
               </li>
@@ -506,8 +443,9 @@ const AssignedSubjectsDropDown = ({
         selectedYearLevel &&
         createPortal(
           <>
+            {/* Desktop Lightbox */}
             <div
-              className="lightbox-bg fixed inset-0 z-54"
+              className="lightbox-bg fixed inset-0 z-54 hidden sm:block"
               style={{ pointerEvents: "auto" }}
               onClick={() => {
                 setShowYearSubjects(false);
@@ -516,25 +454,43 @@ const AssignedSubjectsDropDown = ({
             />
             {/* Mobile Modal */}
             <div
-              className="lightbox-bg fixed inset-0 z-55 flex items-center justify-center p-5 sm:hidden"
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowYearSubjects(false);
-                setOpenMenuID(null);
+              className="lightbox-bg fixed inset-0 z-55 flex items-end justify-center min-[448px]:items-center sm:hidden"
+              onMouseDown={(e) => {
+                if (e.target === e.currentTarget) {
+                  setShowYearSubjects(false);
+                  setOpenMenuID(null);
+                }
+              }}
+              onTouchStart={(e) => {
+                if (e.target === e.currentTarget) {
+                  setShowYearSubjects(false);
+                  setOpenMenuID(null);
+                }
               }}
             >
               <div
-                className="max-h-[90vh] w-full max-w-sm rounded-lg bg-white shadow-lg"
-                onClick={(e) => e.stopPropagation()}
+                className="max-h-[90vh] w-full max-w-md rounded-t-2xl bg-white shadow-lg min-[448px]:rounded-md"
+                onMouseDown={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
               >
                 {/* Header */}
-                <div className="border-b border-gray-200 p-4">
+                <div
+                  className="border-b border-gray-200 p-4"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onTouchStart={(e) => e.stopPropagation()}
+                >
                   <div className="flex items-center justify-between">
                     <h3 className="text-[16px] font-semibold text-gray-700">
                       {`${selectedYearLevel}${selectedYearLevel === "1" ? "st" : selectedYearLevel === "2" ? "nd" : selectedYearLevel === "3" ? "rd" : "th"} Year Subjects`}
                     </h3>
                     <button
-                      onClick={() => {
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        setShowYearSubjects(false);
+                        setOpenMenuID(null);
+                      }}
+                      onTouchStart={(e) => {
+                        e.stopPropagation();
                         setShowYearSubjects(false);
                         setOpenMenuID(null);
                       }}
@@ -545,59 +501,159 @@ const AssignedSubjectsDropDown = ({
                   </div>
                 </div>
                 {/* Content */}
-                <div className="max-h-[calc(90vh-80px)] overflow-y-auto p-4">
-                  {yearLevelGroups[selectedYearLevel]?.length > 0 ? (
-                    yearLevelGroups[selectedYearLevel].map((subject) => (
-                      <div
-                        key={subject.subjectID}
-                        className="group relative flex items-center justify-between rounded-sm px-2 py-2 hover:bg-[rgb(255,230,214)]"
-                        onClick={() => {
-                          setSelectedSubject(null);
-                          handleSelectSubject(subject);
-                          navigate(homePath);
-                          setShowYearSubjects(false);
-                          setOpenMenuID(null);
-                        }}
-                      >
-                        <span className="flex-1 cursor-pointer text-sm break-all">
-                          {subject.programName} - {subject.subjectCode}
-                        </span>
+                <div
+                  className="max-h-[calc(90vh-80px)] overflow-y-auto p-4"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onTouchStart={(e) => e.stopPropagation()}
+                >
+                  {(() => {
+                    // Group assignedSubjects by yearLevel
+                    const yearLevelGroups = assignedSubjects.reduce(
+                      (acc, subject) => {
+                        const yearLevel = subject.yearLevelID || "Unassigned";
+                        if (!acc[yearLevel]) acc[yearLevel] = [];
+                        acc[yearLevel].push(subject);
+                        return acc;
+                      },
+                      {},
+                    );
+                    return yearLevelGroups[selectedYearLevel]?.length > 0 ? (
+                      Object.entries(
+                        yearLevelGroups[selectedYearLevel].reduce(
+                          (acc, subject) => {
+                            const programName =
+                              subject.programName || "Unassigned";
+                            if (!acc[programName]) acc[programName] = [];
+                            acc[programName].push(subject);
+                            return acc;
+                          },
+                          {},
+                        ),
+                      ).map(([programName, subjects], index, array) => (
                         <div
-                          className="relative"
-                          onClick={(e) => e.stopPropagation()}
+                          key={programName}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onTouchStart={(e) => e.stopPropagation()}
                         >
-                          <button
-                            className="hidden items-center justify-center rounded-full transition group-hover:flex"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const rect =
-                                e.currentTarget.getBoundingClientRect();
-                              const menuHeight = 80;
-                              const spaceBelow =
-                                window.innerHeight - rect.bottom;
-                              const direction =
-                                spaceBelow < menuHeight ? "up" : "down";
-                              setDropdownDirection(direction);
-                              setDropdownPosition({
-                                x: rect.right,
-                                y: rect.bottom,
-                              });
-                              setDropdownSubject(subject);
-                              setOpenMenuID(subject.subjectID);
-                            }}
-                          >
-                            <i className="bx bx-dots-vertical-rounded cursor-pointer text-[18px]"></i>
-                          </button>
+                          <div className="flex items-center justify-center gap-2 px-2 py-1">
+                            <div className="h-[0.5px] flex-1 bg-[rgb(200,200,200)]"></div>
+                            <span className="open-sans min-w-[60px] text-center text-sm font-bold text-gray-700">
+                              {programName}
+                            </span>
+                            <div className="h-[0.5px] flex-1 bg-[rgb(200,200,200)]"></div>
+                          </div>
+                          {subjects.map((subject) => (
+                            <div
+                              key={subject.subjectID}
+                              className={`group relative flex items-center justify-between rounded-sm px-2 py-2 ${
+                                selectedSubject?.subjectID === subject.subjectID
+                                  ? "bg-orange-500 text-white"
+                                  : "hover:bg-[rgb(255,230,214)]"
+                              }`}
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setSelectedSubject(null);
+                                handleSelectSubject(subject);
+                                navigate(homePath);
+                                setShowYearSubjects(false);
+                                setOpenMenuID(null);
+                              }}
+                              onTouchStart={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setSelectedSubject(null);
+                                handleSelectSubject(subject);
+                                navigate(homePath);
+                                setShowYearSubjects(false);
+                                setOpenMenuID(null);
+                              }}
+                            >
+                              <span className="flex-1 cursor-pointer text-sm break-all">
+                                {subject.subjectCode}
+                              </span>
+                              <div
+                                className="relative"
+                                onMouseDown={(e) => e.stopPropagation()}
+                                onTouchStart={(e) => e.stopPropagation()}
+                              >
+                                <button
+                                  className={`items-center justify-center rounded-full transition ${
+                                    selectedSubject?.subjectID ===
+                                    subject.subjectID
+                                      ? "flex"
+                                      : "hidden group-hover:flex"
+                                  }`}
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    const rect =
+                                      e.currentTarget.getBoundingClientRect();
+                                    const menuHeight = 80;
+                                    const spaceBelow =
+                                      window.innerHeight - rect.bottom;
+                                    const direction =
+                                      spaceBelow < menuHeight ? "up" : "down";
+                                    setDropdownDirection(direction);
+                                    setDropdownPosition({
+                                      x: rect.right,
+                                      y: rect.bottom,
+                                    });
+                                    setDropdownSubject(subject);
+                                    setOpenMenuID(subject.subjectID);
+                                  }}
+                                >
+                                  <i className="bx bx-dots-vertical-rounded cursor-pointer text-[18px]"></i>
+                                </button>
+                              </div>
+                            </div>
+                          ))}
                         </div>
+                      ))
+                    ) : (
+                      <div className="p-2 text-center text-sm text-gray-500">
+                        No subjects in this year level
                       </div>
-                    ))
-                  ) : (
-                    <div className="p-2 text-center text-sm text-gray-500">
-                      No subjects in this year level
-                    </div>
-                  )}
+                    );
+                  })()}
                 </div>
               </div>
+
+              {openMenuID && dropdownSubject && (
+                <div
+                  className="absolute z-100 w-35 rounded-md border border-gray-300 bg-white p-1 shadow-sm sm:hidden"
+                  style={{
+                    top:
+                      dropdownDirection === "down"
+                        ? dropdownPosition.y - -20
+                        : dropdownPosition.y - 1,
+                    left: dropdownPosition.x - 150,
+                  }}
+                  onMouseLeave={() => setOpenMenuID(null)}
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                  }}
+                  onTouchStart={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                  }}
+                >
+                  <button
+                    className="w-full rounded-sm px-3 py-2 text-left text-sm text-black hover:bg-gray-200"
+                    onClick={() => {
+                      setSubjectToDelete(dropdownSubject);
+                      setShowDeleteModal(true);
+                      setTimeout(() => {
+                        setOpenMenuID(null);
+                        setShowYearSubjects(false);
+                      }, 50);
+                    }}
+                  >
+                    <i className="bx bxs-trash-alt mr-2 text-[16px]"></i>Remove
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Desktop Floating Panel */}
@@ -633,56 +689,99 @@ const AssignedSubjectsDropDown = ({
               {/* Content */}
               <div className="flex h-[calc(100vh-140px)] flex-col">
                 <div className="flex-1 overflow-y-auto p-2">
-                  {yearLevelGroups[selectedYearLevel]?.length > 0 ? (
-                    yearLevelGroups[selectedYearLevel].map((subject) => (
-                      <div
-                        key={subject.subjectID}
-                        className="group relative flex items-center justify-between rounded-sm px-2 py-2 hover:bg-[rgb(255,230,214)]"
-                        onClick={() => {
-                          setSelectedSubject(null);
-                          handleSelectSubject(subject);
-                          navigate(homePath);
-                          setShowYearSubjects(false);
-                          setOpenMenuID(null);
-                        }}
-                      >
-                        <span className="flex-1 cursor-pointer text-sm break-all">
-                          {subject.programName} - {subject.subjectCode}
-                        </span>
-                        <div
-                          className="relative"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <button
-                            className="hidden items-center justify-center rounded-full transition group-hover:flex"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const rect =
-                                e.currentTarget.getBoundingClientRect();
-                              const menuHeight = 80;
-                              const spaceBelow =
-                                window.innerHeight - rect.bottom;
-                              const direction =
-                                spaceBelow < menuHeight ? "up" : "down";
-                              setDropdownDirection(direction);
-                              setDropdownPosition({
-                                x: rect.right,
-                                y: rect.bottom,
-                              });
-                              setDropdownSubject(subject);
-                              setOpenMenuID(subject.subjectID);
-                            }}
-                          >
-                            <i className="bx bx-dots-vertical-rounded cursor-pointer text-[18px]"></i>
-                          </button>
+                  {(() => {
+                    // Group assignedSubjects by yearLevel
+                    const yearLevelGroups = assignedSubjects.reduce(
+                      (acc, subject) => {
+                        const yearLevel = subject.yearLevelID || "Unassigned";
+                        if (!acc[yearLevel]) acc[yearLevel] = [];
+                        acc[yearLevel].push(subject);
+                        return acc;
+                      },
+                      {},
+                    );
+                    return yearLevelGroups[selectedYearLevel]?.length > 0 ? (
+                      Object.entries(
+                        yearLevelGroups[selectedYearLevel].reduce(
+                          (acc, subject) => {
+                            const programName =
+                              subject.programName || "Unassigned";
+                            if (!acc[programName]) acc[programName] = [];
+                            acc[programName].push(subject);
+                            return acc;
+                          },
+                          {},
+                        ),
+                      ).map(([programName, subjects], index, array) => (
+                        <div key={programName}>
+                          <div className="flex items-center justify-center gap-2 px-2 py-1">
+                            <div className="h-[0.5px] flex-1 bg-[rgb(200,200,200)]"></div>
+                            <span className="open-sans min-w-[60px] text-center text-sm font-bold text-gray-700">
+                              {programName}
+                            </span>
+                            <div className="h-[0.5px] flex-1 bg-[rgb(200,200,200)]"></div>
+                          </div>
+                          {subjects.map((subject) => (
+                            <div
+                              key={subject.subjectID}
+                              className={`group relative flex items-center justify-between rounded-sm px-2 py-2 ${
+                                selectedSubject?.subjectID === subject.subjectID
+                                  ? "bg-orange-500 text-white"
+                                  : "hover:bg-[rgb(255,230,214)]"
+                              }`}
+                              onClick={() => {
+                                setSelectedSubject(null);
+                                handleSelectSubject(subject);
+                                navigate(homePath);
+                                setShowYearSubjects(false);
+                                setOpenMenuID(null);
+                              }}
+                            >
+                              <span className="flex-1 cursor-pointer text-sm break-all">
+                                {subject.subjectCode}
+                              </span>
+                              <div
+                                className="relative"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <button
+                                  className={`items-center justify-center rounded-full transition ${
+                                    selectedSubject?.subjectID ===
+                                    subject.subjectID
+                                      ? "flex"
+                                      : "hidden group-hover:flex"
+                                  }`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const rect =
+                                      e.currentTarget.getBoundingClientRect();
+                                    const menuHeight = 80;
+                                    const spaceBelow =
+                                      window.innerHeight - rect.bottom;
+                                    const direction =
+                                      spaceBelow < menuHeight ? "up" : "down";
+                                    setDropdownDirection(direction);
+                                    setDropdownPosition({
+                                      x: rect.right,
+                                      y: rect.bottom,
+                                    });
+                                    setDropdownSubject(subject);
+                                    setOpenMenuID(subject.subjectID);
+                                  }}
+                                >
+                                  <i className="bx bx-dots-vertical-rounded cursor-pointer text-[18px]"></i>
+                                </button>
+                              </div>
+                            </div>
+                          ))}
                         </div>
+                      ))
+                    ) : (
+                      <div className="p-2 text-center text-sm text-gray-500">
+                        No subjects in this year level
                       </div>
-                    ))
-                  ) : (
-                    <div className="p-2 text-center text-sm text-gray-500">
-                      No subjects in this year level
-                    </div>
-                  )}
+                    );
+                  })()}
                 </div>
               </div>
             </div>
@@ -690,48 +789,118 @@ const AssignedSubjectsDropDown = ({
           document.body,
         )}
 
+      {/* Subject Actions Menu */}
+      {openMenuID && dropdownSubject && (
+        <div
+          className="absolute z-58 hidden w-35 rounded-md border border-gray-300 bg-white p-1 shadow-sm sm:block"
+          style={{
+            top:
+              dropdownDirection === "down"
+                ? dropdownPosition.y - 50
+                : dropdownPosition.y - 1,
+            left: dropdownPosition.x - -35,
+          }}
+          onMouseLeave={() => setOpenMenuID(null)}
+        >
+          {/* Arrow */}
+          <div className="absolute top-1/2 -left-2 h-4 w-4 -translate-y-1/2 rotate-45 border-l border-gray-300 bg-white" />
+          <button
+            className="w-full rounded-sm px-3 py-2 text-left text-sm text-black hover:bg-gray-200"
+            onClick={() => {
+              setSubjectToDelete(dropdownSubject);
+              setShowDeleteModal(true);
+              setTimeout(() => {
+                setOpenMenuID(null);
+                setShowYearSubjects(false);
+              }, 50);
+            }}
+          >
+            <i className="bx bxs-trash-alt mr-2 text-[16px]"></i>Remove
+          </button>
+        </div>
+      )}
+
       {showDeleteModal && subjectToDelete && (
-        <div className="lightbox-bg fixed inset-0 z-56 flex flex-col items-center justify-center">
-          <div className="font-inter border-color relative mx-auto w-full max-w-sm rounded-t-md border bg-white py-2 pl-4 text-[14px] font-medium text-gray-700">
-            <span>Remove Subject</span>
-          </div>
-
-          <div className="border-color relative mx-auto w-full max-w-sm rounded-b-md border border-t-0 bg-white p-2 sm:px-4">
-            <p className="mt-2 mb-9 px-2 text-[14px] break-words text-gray-700">
-              Are you sure you want to remove{" "}
-              <strong>
-                {subjectToDelete.subjectName} ({subjectToDelete.subjectCode})
-              </strong>
-              ?
-            </p>
-
-            <div className="-mx-2 mt-6 mb-3 h-[0.5px] bg-[rgb(200,200,200)] sm:-mx-4" />
-
-            <div className="mb-2 flex justify-end gap-2 text-[14px]">
-              <button
-                onClick={() => setShowDeleteModal(false)}
-                className="ml-auto flex cursor-pointer items-center gap-1 rounded-md border px-4 py-1.5 text-gray-700 hover:bg-gray-200"
+        <div className="bg-opacity-50 lightbox-bg fixed inset-0 z-57 flex items-center justify-center">
+          <div className="w-full max-w-md rounded-md bg-white shadow-lg">
+            {/* Yellow top border */}
+            <div className="h-2 w-full rounded-t-md bg-[rgb(249,115,22)]" />
+            <div className="flex flex-row items-center gap-6 px-6 py-6">
+              {/* Warning icon - diamond with exclamation mark */}
+              <div
+                className="flex flex-shrink-0 items-center justify-center overflow-visible p-1"
+                style={{ height: "64px", width: "64px" }}
               >
-                Cancel
-              </button>
+                <svg
+                  width="56"
+                  height="56"
+                  viewBox="0 0 56 56"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <rect
+                    x="28"
+                    y="4"
+                    width="36"
+                    height="36"
+                    rx="5"
+                    transform="rotate(45 28 4)"
+                    fill="#f97316"
+                    stroke="#f97316"
+                    strokeWidth="2"
+                  />
 
+                  <text
+                    x="28"
+                    y="38"
+                    textAnchor="middle"
+                    fontSize="26"
+                    fontWeight="bold"
+                    fill="#FFF"
+                  >
+                    !
+                  </text>
+                </svg>
+              </div>
+              {/* Text content */}
+              <div className="flex min-w-0 flex-1 flex-col items-start justify-center">
+                <h2 className="mb-2 text-xl font-semibold text-gray-800">
+                  Confirmation
+                </h2>
+                <p className="mb-2 text-sm text-gray-700">
+                  Are you sure you want to remove
+                  <span className="font-bold">
+                    {" "}
+                    {subjectToDelete.subjectName} ({subjectToDelete.subjectCode}
+                    )
+                  </span>
+                </p>
+              </div>
+            </div>
+            {/* Divider */}
+            <div className="h-[0.5px] bg-[rgb(200,200,200)]" />
+
+            {/* Buttons row */}
+            <div className="flex w-full justify-end gap-2 px-4 py-3">
               <button
-                className="flex w-[80px] cursor-pointer items-center justify-center rounded-md bg-orange-500 px-[12px] py-[6px] text-[14px] text-white hover:bg-orange-700"
+                className="bg-whie border-color flex cursor-pointer items-center gap-1 rounded-md border px-[12px] py-[6px] text-gray-700 hover:bg-gray-200"
+                onClick={() => setShowDeleteModal(false)}
+              >
+                <span className="inline text-[14px]">Cancel</span>
+              </button>
+              <button
+                className="flex cursor-pointer items-center gap-1 rounded-md bg-orange-500 px-[18px] py-[6px] text-white hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-70"
                 onClick={async () => {
                   await handleDeleteSubject(subjectToDelete.subjectID);
                   setShowDeleteModal(false);
                   setSubjectToDelete(null);
-                  setToast({
-                    message: "Subject deleted successfully",
-                    type: "success",
-                    show: true,
-                  });
+                  showToast("Subject deleted successfully", "success");
                 }}
               >
                 {isDeleting ? (
-                  <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+                  <span className="loader-white"></span>
                 ) : (
-                  "Confirm"
+                  <span className="inline text-[14px]">Confirm</span>
                 )}
               </button>
             </div>
@@ -758,10 +927,10 @@ const AssignedSubjectsDropDown = ({
                 />
               </div>
               <button
-                className="border-color flex cursor-pointer items-center gap-1 rounded-md border px-3 py-[7px] text-sm hover:bg-gray-100"
+                className="border-color flex cursor-pointer items-center gap-1 rounded-md border px-3 py-[7px] text-sm hover:bg-gray-200"
                 onClick={fetchSubjects}
               >
-                <i className="bx bx-refresh text-[18px]"></i> Refresh
+                <i className="bx bx-refresh-ccw text-[18px]"></i> Refresh
               </button>
             </div>
 
@@ -772,13 +941,12 @@ const AssignedSubjectsDropDown = ({
               <ul className="max-h-[200px] overflow-y-auto" ref={listRef}>
                 {loading ? (
                   <div className="flex items-center justify-center text-[rgb(168,168,168)]">
-                    <span>Loading</span>
-                    <div className="ml-2 size-4 animate-spin rounded-full border-3 border-t-transparent"></div>
+                    <div className="loader"></div>
                   </div>
                 ) : unassignedSubjects.length > 0 ? (
                   [...unassignedSubjects]
                     .filter((subject) =>
-                      `${subject.programName} ${subject.subjectName} ${subject.subjectCode} ${subject.yearLevel}`
+                      `${subject.programName} ${subject.subjectName} ${subject.subjectCode}`
                         .toLowerCase()
                         .includes(searchUnassigned.toLowerCase()),
                     )
@@ -796,8 +964,8 @@ const AssignedSubjectsDropDown = ({
                         onClick={() => setSelectedSubjectForAssignment(subject)}
                       >
                         <span className="mb-[1px] pl-1 break-words">
-                          {subject.programName} - {subject.subjectCode} (
-                          {subject.yearLevel}) - {subject.subjectName}
+                          {subject.programName} - ({subject.subjectCode}){" "}
+                          {subject.subjectName}
                         </span>
                       </li>
                     ))
@@ -827,7 +995,7 @@ const AssignedSubjectsDropDown = ({
                 disabled={!selectedSubjectForAssignment}
               >
                 {isAssigning ? (
-                  <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+                  <span className="loader-white"></span>
                 ) : (
                   "Assign"
                 )}
@@ -837,62 +1005,7 @@ const AssignedSubjectsDropDown = ({
         </div>
       )}
 
-      {/* Subject Actions Menu */}
-      {openMenuID && dropdownSubject && (
-        <div
-          className="absolute z-58 w-35 rounded-md border border-gray-300 bg-white p-1 shadow-sm"
-          style={{
-            top:
-              dropdownDirection === "down"
-                ? dropdownPosition.y - 50
-                : dropdownPosition.y - 1,
-            left: dropdownPosition.x - -47,
-          }}
-          onMouseLeave={() => setOpenMenuID(null)}
-        >
-          {/* Arrow */}
-          <div className="absolute top-1/2 -left-2 h-4 w-4 -translate-y-1/2 rotate-45 border-l border-gray-300 bg-white" />
-          <button
-            className="w-full rounded-sm px-3 py-2 text-left text-sm text-black hover:bg-gray-200"
-            onClick={() => {
-              setSubjectToDelete(dropdownSubject);
-              setShowDeleteModal(true);
-              setOpenMenuID(null);
-              setShowYearSubjects(false);
-            }}
-          >
-            <i className="bx bxs-trash-alt mr-2 text-[16px]"></i>Remove
-          </button>
-        </div>
-      )}
-
-      {toast.message && (
-        <div
-          className={`fixed top-6 left-1/2 z-100 mx-auto flex max-w-md -translate-x-1/2 transform items-center justify-between rounded border border-l-4 bg-white px-4 py-2 shadow-md transition-opacity duration-1000 ease-in-out ${
-            toast.show ? "opacity-100" : "opacity-0"
-          } ${
-            toast.type === "success" ? "border-green-400" : "border-red-400"
-          }`}
-        >
-          <div className="flex items-center">
-            <i
-              className={`mr-3 text-[24px] ${
-                toast.type === "success"
-                  ? "bx bxs-check-circle text-green-400"
-                  : "bx bxs-error text-red-400"
-              }`}
-            ></i>
-            <div>
-              <p className="font-semibold text-gray-800">
-                {toast.type === "success" ? "Success" : "Error"}
-              </p>
-              <p className="mb-1 text-sm text-nowrap text-gray-600">
-                {toast.message}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
+      <Toast message={toast.message} type={toast.type} show={toast.show} />
     </div>
   );
 };

@@ -5,6 +5,7 @@ import AllSubjectsDropDownProgramChair from "./subjectsProgramChair";
 import AssignedSubjectsDropDown from "./subjectsFaculty";
 import SideBarToolTip from "./sidebarTooltip";
 import PrintExamModal from "./PrintExamModal";
+import AppVersion from "./appVersion";
 
 // Displays the main sidebar
 const Sidebar = ({
@@ -13,7 +14,7 @@ const Sidebar = ({
   isExpanded,
   setIsExpanded,
 }) => {
-  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 640);
   const collegeLogo = new URL("../assets/college-logo.png", import.meta.url)
     .href;
   const [isSubjectFocused, setIsSubjectFocused] = useState(false);
@@ -51,7 +52,7 @@ const Sidebar = ({
   }, [isMobile, isExpanded]);
 
   useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    const handleResize = () => setIsMobile(window.innerWidth <= 640);
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
@@ -66,17 +67,20 @@ const Sidebar = ({
         : parsedRoleId === 3
           ? "/program-chair-dashboard"
           : parsedRoleId === 4
-            ? "/admin-dashboard"
+            ? "/dean-dashboard"
             : "/";
 
   const baseMenuItems = [
-    { icon: "bx-bar-chart-alt-2", label: "Dashboard", path: homePath },
+    { icon: "bx-dashboard-alt", label: "Dashboard", path: homePath },
   ];
   const facultyItems = [
     {
       icon: "bx-printer",
       label: "Print",
-      onClick: () => alert("Print feature is under development, Stay Tuned!"),
+      onClick: () => {
+        alert("Under development, Stay Tuned!");
+      },
+
       isButton: true,
     },
   ];
@@ -208,6 +212,35 @@ const Sidebar = ({
           </ul>
         )}
 
+        {parsedRoleId === 5 && (
+          <>
+            {!isSubjectFocused && (
+              <>
+                <div className="mb-7 h-[1px] w-full bg-[rgb(168,168,168)]"></div>
+              </>
+            )}
+            <div
+              className={`${isSubjectFocused ? "top-[75px] z-50 w-full" : ""}`}
+            >
+              <ul className="space-y-[10px]">
+                {classes.map((item, index) => (
+                  <AllSubjectsDropDown
+                    key={index}
+                    item={item}
+                    isExpanded={isExpanded}
+                    parsedRoleId={parsedRoleId}
+                    setIsExpanded={setIsExpanded}
+                    setSelectedSubject={setSelectedSubject}
+                    isSubjectFocused={isSubjectFocused}
+                    setIsSubjectFocused={setIsSubjectFocused}
+                    homePath={"/Dean/subjects"}
+                  />
+                ))}
+              </ul>
+            </div>
+          </>
+        )}
+
         {/* Different Dropdowns for Different Roles*/}
         {parsedRoleId === 4 && (
           <>
@@ -296,6 +329,14 @@ const Sidebar = ({
             </div>
           </>
         )}
+
+        <div
+          className={`fixed bottom-4 ${isExpanded ? "left-[75px]" : "left-[14px]"} transition-all duration-300 ease-in-out ${
+            isMobile && !isExpanded ? "hidden" : ""
+          }`}
+        >
+          <AppVersion />
+        </div>
       </div>
       <PrintExamModal
         isOpen={showPrintModal}

@@ -241,7 +241,7 @@ LOCAL DEPLOMENT GUIDE
     # ./docker-data/mysql_data:/var/lib/mysql:
 
  9. Go to the Frontend - Deployment Folder
-    -make sure the folder named "package-lock.json"
+    -make sure the folder named "package-lock.json" is deleted
 
 10. Open Docker desktop
 

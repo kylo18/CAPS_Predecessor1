@@ -37,7 +37,7 @@ export default function Register() {
     { id: "3", name: "Bachelor of Science in Civil Engineering" },
     {
       id: "4",
-      name: "Bachelor of Science in Electronics and Communication Engineering",
+      name: "Bachelor of Science in Electronics Engineering",
     },
     {
       id: "5",
@@ -217,7 +217,7 @@ export default function Register() {
 
       if (res.ok) {
         setMessage(
-          "Registration successful! Your account is pending approval. You will be notified once approved.",
+          "Registration successful! Your account is pending approval.",
         );
         setErrors({});
         // Add a delay before navigation to allow user to read the message
@@ -279,7 +279,7 @@ export default function Register() {
       <div className="relative hidden min-h-screen w-full bg-[url('/login-bg.png')] bg-cover bg-center bg-no-repeat lg:block">
         {/* Left Section */}
         <div className="flex min-h-screen flex-row">
-          <div className="mr-10 flex w-full flex-col items-center justify-center p-6 text-white lg:w-1/2">
+          <div className="mr-18 flex w-full flex-col items-center justify-center p-6 text-white lg:w-1/2">
             {/* Logos */}
             <div className="absolute top-3 left-3 flex items-center space-x-2">
               <img src={univLogo} alt="Logo 1" className="size-8" />
@@ -362,7 +362,6 @@ export default function Register() {
                                 type="text"
                                 id="firstName"
                                 className="peer mt-2 w-full rounded-xl border border-gray-300 px-4 py-[8px] text-base text-gray-900 placeholder-transparent transition-all duration-200 hover:border-gray-500 focus:border-[#FE6902] focus:outline-none"
-                                placeholder="User Code"
                                 value={firstName}
                                 onChange={(e) => setFirstName(e.target.value)}
                               />
@@ -386,7 +385,6 @@ export default function Register() {
                                 type="text"
                                 id="lastName"
                                 className="peer mt-2 w-full rounded-xl border border-gray-300 px-4 py-[8px] text-base text-gray-900 placeholder-transparent transition-all duration-200 hover:border-gray-500 focus:border-[#FE6902] focus:outline-none"
-                                placeholder="User Code"
                                 value={lastName}
                                 onChange={(e) => setLastName(e.target.value)}
                               />
@@ -447,7 +445,7 @@ export default function Register() {
                                 htmlFor="User Code"
                                 className="pointer-events-none absolute top-1/2 left-4 z-10 -translate-y-1/2 bg-white px-1 text-base text-gray-500 transition-all duration-200 peer-placeholder-shown:top-1/2 peer-placeholder-shown:mt-1 peer-placeholder-shown:text-base peer-focus:top-2 peer-focus:mt-0 peer-focus:text-xs peer-focus:text-[#FE6902] peer-[&:not(:placeholder-shown)]:top-2 peer-[&:not(:placeholder-shown)]:text-xs"
                               >
-                                User Code (e.g 23-A-XXXXX)
+                                Instructor Code/Student ID Number
                               </label>
                             </div>
 
@@ -560,6 +558,8 @@ export default function Register() {
                                   { value: "1", label: "Student" },
                                   { value: "2", label: "Instructor" },
                                   { value: "3", label: "Program Chair" },
+
+                                  { value: "5", label: "Associate Dean" },
                                   { value: "4", label: "Dean" },
                                 ]}
                               />
@@ -656,12 +656,12 @@ export default function Register() {
                               </label>
                               <button
                                 type="button"
-                                className="absolute top-[16px] right-3 text-gray-400"
+                                className="absolute top-[16px] right-3 text-gray-400 transition-colors hover:text-gray-600"
                                 onClick={() => setPasswordVisible((v) => !v)}
                                 tabIndex={-1}
                               >
                                 <i
-                                  className={`bx ${passwordVisible ? "bx-show text-orange-500" : "bx-hide"} text-[25px]`}
+                                  className={`bx ${passwordVisible ? "bx-eye-alt text-orange-500" : "bx-eye-slash"} text-[25px]`}
                                 ></i>
                               </button>
                             </div>
@@ -704,7 +704,7 @@ export default function Register() {
                               </label>
                               <button
                                 type="button"
-                                className="absolute top-[16px] right-3 text-gray-400"
+                                className="absolute top-[16px] right-3 text-gray-400 transition-colors hover:text-gray-600"
                                 onClick={() =>
                                   setConfirmPasswordVisible(
                                     !confirmPasswordVisible,
@@ -713,7 +713,7 @@ export default function Register() {
                                 tabIndex={-1}
                               >
                                 <i
-                                  className={`bx ${confirmPasswordVisible ? "bx-show text-orange-500" : "bx-hide"} text-[25px]`}
+                                  className={`bx ${confirmPasswordVisible ? "bx-eye-alt text-orange-500" : "bx-eye-slash"} text-[25px]`}
                                 ></i>
                               </button>
                             </div>
@@ -766,7 +766,7 @@ export default function Register() {
                             >
                               {isRegistering ? (
                                 <div className="flex items-center justify-center">
-                                  <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+                                  <span className="loader-white"></span>
                                 </div>
                               ) : (
                                 "Register"
@@ -789,7 +789,12 @@ export default function Register() {
 
                     <span className="mx-2 text-xs text-gray-400">
                       Developed by{" "}
-                      <span className="text-orange-500">Team Caps</span>
+                      <span
+                        onClick={() => navigate("/team-caps")}
+                        className="cursor-pointer text-orange-500 hover:underline"
+                      >
+                        Team Caps
+                      </span>
                     </span>
                   </form>
                 </div>
@@ -1096,6 +1101,8 @@ export default function Register() {
                             { value: "1", label: "Student" },
                             { value: "2", label: "Instructor" },
                             { value: "3", label: "Program Chair" },
+
+                            { value: "5", label: "Associate Dean" },
                             { value: "4", label: "Dean" },
                           ]}
                         />
@@ -1192,12 +1199,12 @@ export default function Register() {
                         </label>
                         <button
                           type="button"
-                          className="absolute top-[21px] right-3 text-gray-400"
+                          className="absolute top-[21px] right-3 text-gray-400 transition-colors hover:text-gray-600"
                           onClick={() => setPasswordVisible((v) => !v)}
                           tabIndex={-1}
                         >
                           <i
-                            className={`bx ${passwordVisible ? "bx-show text-orange-500" : "bx-hide"} text-[25px]`}
+                            className={`bx ${passwordVisible ? "bx-eye-alt text-orange-500" : "bx-eye-slash"} text-[25px]`}
                           ></i>
                         </button>
                       </div>
@@ -1234,14 +1241,14 @@ export default function Register() {
                         </label>
                         <button
                           type="button"
-                          className="absolute top-[21px] right-3 text-gray-400"
+                          className="absolute top-[21px] right-3 text-gray-400 transition-colors hover:text-gray-600"
                           onClick={() =>
                             setConfirmPasswordVisible(!confirmPasswordVisible)
                           }
                           tabIndex={-1}
                         >
                           <i
-                            className={`bx ${confirmPasswordVisible ? "bx-show text-orange-500" : "bx-hide"} text-[25px]`}
+                            className={`bx ${confirmPasswordVisible ? "bx-eye-alt text-orange-500" : "bx-eye-slash"} text-[25px]`}
                           ></i>
                         </button>
                       </div>
@@ -1291,7 +1298,7 @@ export default function Register() {
                       >
                         {isRegistering ? (
                           <div className="flex items-center justify-center">
-                            <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+                            <span className="loader-white"></span>
                           </div>
                         ) : (
                           "Register"
@@ -1312,7 +1319,12 @@ export default function Register() {
               <div className="flex items-center justify-center">
                 <span className="mx-2 text-xs text-gray-400">
                   Developed by{" "}
-                  <span className="text-orange-500">Team Caps</span>
+                  <span
+                    onClick={() => navigate("/team-caps")}
+                    className="cursor-pointer text-orange-500 hover:underline"
+                  >
+                    Team Caps
+                  </span>
                 </span>
               </div>
             </form>

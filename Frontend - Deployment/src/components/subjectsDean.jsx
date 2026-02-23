@@ -5,6 +5,8 @@ import SideBarToolTip from "./sidebarTooltip";
 import { Tooltip } from "flowbite-react";
 import RegisterDropDownSmall from "./registerDropDownSmall";
 import { createPortal } from "react-dom";
+import Toast from "./Toast";
+import useToast from "../hooks/useToast";
 
 const SideBarDropDown = ({
   item,
@@ -58,6 +60,9 @@ const SideBarDropDown = ({
   const [showYearSubjects, setShowYearSubjects] = useState(false);
   const [yearLevelPosition, setYearLevelPosition] = useState({ x: 0, y: 0 });
 
+  // Use the toast hook
+  const { toast, showToast } = useToast();
+
   const handleEditClick = (subject) => {
     setEditingSubject(subject.subjectID);
     setEditedSubject({
@@ -67,27 +72,6 @@ const SideBarDropDown = ({
       yearLevelID: subject.yearLevelID || "",
     });
   };
-
-  const [toast, setToast] = useState({
-    message: "",
-    type: "",
-    show: false,
-  });
-
-  useEffect(() => {
-    if (toast.message) {
-      setToast((prev) => ({ ...prev, show: true }));
-
-      const timer = setTimeout(() => {
-        setToast((prev) => ({ ...prev, show: false }));
-        setTimeout(() => {
-          setToast({ message: "", type: "", show: false });
-        }, 500);
-      }, 2500);
-
-      return () => clearTimeout(timer);
-    }
-  }, [toast.message]);
 
   const handleSaveEdit = async (subjectID) => {
     const token = localStorage.getItem("token");
@@ -102,8 +86,6 @@ const SideBarDropDown = ({
         programID: editedSubject.programID,
         yearLevelID: String(editedSubject.yearLevelID),
       };
-
-      console.log("Sending update data:", updateData);
 
       const response = await fetch(`${apiUrl}/subjects/${subjectID}/update`, {
         method: "PUT",
@@ -121,7 +103,6 @@ const SideBarDropDown = ({
       }
 
       const result = await response.json();
-      console.log("Update response:", result);
 
       if (response.ok) {
         // Update the subjects list with the new data including relationships
@@ -145,68 +126,45 @@ const SideBarDropDown = ({
         setOpenMenuID(null);
         setSelectedSubject(null);
 
-        setToast({
-          message: result.message || "Subject updated successfully",
-          type: "success",
-          show: true,
-        });
+        showToast(result.message || "Subject updated successfully", "success");
       } else {
         // Handle different error cases
         switch (response.status) {
           case 401:
-            setToast({
-              message: "You are not authenticated. Please log in again.",
-              type: "error",
-              show: true,
-            });
+            showToast(
+              "You are not authenticated. Please log in again.",
+              "error",
+            );
             break;
           case 403:
-            setToast({
-              message: "You are not authorized to modify subjects.",
-              type: "error",
-              show: true,
-            });
+            showToast("You are not authorized to modify subjects.", "error");
             break;
           case 404:
-            setToast({
-              message: "Subject not found.",
-              type: "error",
-              show: true,
-            });
+            showToast("Subject not found.", "error");
             break;
           case 409:
-            setToast({
-              message:
-                result.message ||
-                "A subject with these details already exists.",
-              type: "error",
-              show: true,
-            });
+            showToast(
+              result.message || "A subject with these details already exists.",
+              "error",
+            );
             break;
           case 500:
             console.error("Server error details:", result);
-            setToast({
-              message:
-                "An error occurred while updating the subject. Please try again.",
-              type: "error",
-              show: true,
-            });
+            showToast(
+              "An error occurred while updating the subject. Please try again.",
+              "error",
+            );
             break;
           default:
-            setToast({
-              message: result.message || "Failed to update subject.",
-              type: "error",
-              show: true,
-            });
+            showToast(result.message || "Failed to update subject.", "error");
         }
       }
     } catch (error) {
       console.error("Error updating subject:", error);
-      setToast({
-        message: "An unexpected error occurred while connecting to the server.",
-        type: "error",
-        show: true,
-      });
+      showToast(
+        "An unexpected error occurred while connecting to the server.",
+        "error",
+      );
     } finally {
       setIsEditing(false);
       setEditingSubject(null);
@@ -240,11 +198,14 @@ const SideBarDropDown = ({
         setFilteredSubjects((prevSubjects) =>
           prevSubjects.filter((subject) => subject.subjectID !== subjectID),
         );
+        showToast("Subject deleted successfully", "success");
       } else {
         console.error("Failed to delete subject");
+        showToast("Failed to delete subject", "error");
       }
     } catch (error) {
       console.error("Error deleting subject:", error);
+      showToast("Error deleting subject", "error");
     } finally {
       setIsDeleting(false);
     }
@@ -282,19 +243,22 @@ const SideBarDropDown = ({
         return;
       }
 
-      const sortedSubjects = [...data.subjects].sort((a, b) =>
-        a.subjectCode.localeCompare(b.subjectCode),
-      );
+      const sortedSubjects = [...data.subjects].sort((a, b) => {
+        // First sort by program name
+        const programCompare = (a.programName || "").localeCompare(
+          b.programName || "",
+        );
+        if (programCompare !== 0) return programCompare;
+
+        // If programs are the same, sort by subject code
+        return a.subjectCode.localeCompare(b.subjectCode);
+      });
 
       setSubjects(sortedSubjects);
       setFilteredSubjects(sortedSubjects);
     } catch (error) {
       console.error("Error fetching subjects:", error);
-      setToast({
-        message: error.message || "Failed to fetch subjects",
-        type: "error",
-        show: true,
-      });
+      showToast(error.message || "Failed to fetch subjects", "error");
     } finally {
       setSubjectLoading(false);
     }
@@ -335,39 +299,23 @@ const SideBarDropDown = ({
         setSelectedProgramID("");
         setSelectedYearLevelID("");
 
-        setToast({
-          message: "Subject added successfully",
-          type: "success",
-          show: true,
-        });
+        showToast("Subject added successfully", "success");
       } else {
         // Handle specific error if subject already exists
         if (result.message && result.message.includes("already exists")) {
-          setToast({
-            message: "Subject already exists",
-            type: "error",
-            show: true,
-          });
+          showToast("Subject already exists", "error");
         } else {
           // General error case
           console.error(
             "Failed to add subject:",
             result.message || "Unknown error",
           );
-          setToast({
-            message: "Failed to add subject",
-            type: "error",
-            show: true,
-          });
+          showToast("Failed to add subject", "error");
         }
       }
     } catch (error) {
       console.error("Error adding subject:", error);
-      setToast({
-        message: "An error occurred while adding subject",
-        type: "error",
-        show: true,
-      });
+      showToast("An error occurred while adding subject", "error");
     } finally {
       setIsAdding(false);
     }
@@ -471,7 +419,7 @@ const SideBarDropDown = ({
   return (
     <div className="-mt-2">
       <li
-        className="relative flex items-center gap-3 rounded px-[4px] py-[1px] hover:bg-[rgb(255,230,214)] hover:text-gray-700"
+        className="relative flex cursor-pointer items-center gap-3 rounded px-[4px] py-[1px] hover:text-gray-700"
         onClick={() => {
           if (!isExpanded || !isOpen) {
             setIsExpanded(true);
@@ -540,7 +488,7 @@ const SideBarDropDown = ({
                 setShowYearSubjects(false);
               }}
             >
-              <i className="bx bx-plus text-[16px]"></i>
+              <i className="bx bx-plus mt-[1px] text-[16px]"></i>
             </div>
           </Tooltip>
         </div>
@@ -551,18 +499,21 @@ const SideBarDropDown = ({
           className={`scrollbar-show-on-hover mx-auto mt-2 w-full flex-grow pr-2 text-[14px] font-semibold text-gray-700 transition-all duration-100 ease-in-out ${!isExpanded ? "hidden" : ""}`}
         >
           {subjectLoading ? (
-            <li className="animate-pulse p-2 text-center text-[14px] text-[rgb(168,168,168)]">
-              <div className="flex items-center justify-center">
-                <span>Loading</span>
-                <div className="ml-2 size-4 animate-spin rounded-full border-3 border-t-transparent"></div>
+            <div className="flex h-[300px] items-start justify-center">
+              <div className="mt-4 flex flex-col items-center gap-2">
+                <div className="loader"></div>
               </div>
-            </li>
+            </div>
           ) : searchTerm.trim() ? (
             // Show filtered subjects when searching
             filteredSubjects.map((subject) => (
               <li
                 key={subject.subjectID}
-                className="group relative mt-2 mr-1 flex items-center justify-between rounded-sm px-[4px] py-[5px] transition-all duration-100 ease-in-out hover:bg-[rgb(255,230,214)]"
+                className={`group relative mt-2 mr-1 flex items-center justify-between rounded-sm px-[4px] py-[5px] transition-all duration-100 ease-in-out ${
+                  selectedSubject?.subjectID === subject.subjectID
+                    ? "bg-orange-500 text-white"
+                    : "hover:bg-[rgb(255,230,214)]"
+                }`}
                 onClick={() => {
                   setSelectedSubject(null);
                   handleSelectSubject(subject);
@@ -572,27 +523,6 @@ const SideBarDropDown = ({
                 <span className="ml-2 flex-1 cursor-pointer break-all">
                   {subject.programName} - {subject.subjectCode}
                 </span>
-                <div className="relative" onClick={(e) => e.stopPropagation()}>
-                  <button
-                    className="hidden items-center justify-center rounded-full transition group-hover:flex"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      const menuHeight = 80;
-                      const spaceBelow = window.innerHeight - rect.bottom;
-                      const direction = spaceBelow < menuHeight ? "up" : "down";
-                      setDropdownDirection(direction);
-                      setDropdownPosition({
-                        x: rect.right,
-                        y: rect.bottom,
-                      });
-                      setDropdownSubject(subject);
-                      setOpenMenuID(subject.subjectID);
-                    }}
-                  >
-                    <i className="bx bx-dots-vertical-rounded cursor-pointer text-[18px]"></i>
-                  </button>
-                </div>
               </li>
             ))
           ) : (
@@ -626,7 +556,7 @@ const SideBarDropDown = ({
                   }}
                   className="border-color flex w-full cursor-pointer items-center justify-center gap-2 rounded-md border px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
                 >
-                  <i className="bx bx-refresh text-lg"></i>
+                  <i className="bx bx-refresh-ccw text-lg"></i>
                   <span className="text-[14px]">Refresh</span>
                 </button>
               </li>
@@ -640,8 +570,9 @@ const SideBarDropDown = ({
         selectedYearLevel &&
         createPortal(
           <>
+            {/* Desktop Lightbox */}
             <div
-              className="lightbox-bg fixed inset-0 z-54"
+              className="lightbox-bg fixed inset-0 z-54 hidden sm:block"
               style={{ pointerEvents: "auto" }}
               onClick={() => {
                 setShowYearSubjects(false);
@@ -650,25 +581,43 @@ const SideBarDropDown = ({
             />
             {/* Mobile Modal */}
             <div
-              className="lightbox-bg fixed inset-0 z-55 flex items-center justify-center p-5 sm:hidden"
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowYearSubjects(false);
-                setOpenMenuID(null);
+              className="lightbox-bg fixed inset-0 z-55 flex items-end justify-center min-[448px]:items-center sm:hidden"
+              onMouseDown={(e) => {
+                if (e.target === e.currentTarget) {
+                  setShowYearSubjects(false);
+                  setOpenMenuID(null);
+                }
+              }}
+              onTouchStart={(e) => {
+                if (e.target === e.currentTarget) {
+                  setShowYearSubjects(false);
+                  setOpenMenuID(null);
+                }
               }}
             >
               <div
-                className="max-h-[90vh] w-full max-w-sm rounded-lg bg-white shadow-lg"
-                onClick={(e) => e.stopPropagation()}
+                className="max-h-[90vh] w-full max-w-md rounded-t-2xl bg-white shadow-lg min-[448px]:rounded-md"
+                onMouseDown={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
               >
                 {/* Header */}
-                <div className="border-b border-gray-200 p-4">
+                <div
+                  className="border-b border-gray-200 p-4"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onTouchStart={(e) => e.stopPropagation()}
+                >
                   <div className="flex items-center justify-between">
                     <h3 className="text-[16px] font-semibold text-gray-700">
                       {`${selectedYearLevel}${selectedYearLevel === "1" ? "st" : selectedYearLevel === "2" ? "nd" : selectedYearLevel === "3" ? "rd" : "th"} Year Subjects`}
                     </h3>
                     <button
-                      onClick={() => {
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        setShowYearSubjects(false);
+                        setOpenMenuID(null);
+                      }}
+                      onTouchStart={(e) => {
+                        e.stopPropagation();
                         setShowYearSubjects(false);
                         setOpenMenuID(null);
                       }}
@@ -679,50 +628,122 @@ const SideBarDropDown = ({
                   </div>
                 </div>
                 {/* Content */}
-                <div className="max-h-[calc(90vh-80px)] overflow-y-auto p-4">
+                <div
+                  className="max-h-[calc(90vh-80px)] overflow-y-auto p-4"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onTouchStart={(e) => e.stopPropagation()}
+                >
                   {yearLevelGroups[selectedYearLevel]?.length > 0 ? (
-                    yearLevelGroups[selectedYearLevel].map((subject) => (
+                    Object.entries(
+                      yearLevelGroups[selectedYearLevel].reduce(
+                        (acc, subject) => {
+                          const programName =
+                            subject.programName || "Unassigned";
+                          if (!acc[programName]) {
+                            acc[programName] = [];
+                          }
+                          acc[programName].push(subject);
+                          return acc;
+                        },
+                        {},
+                      ),
+                    ).map(([programName, subjects], index, array) => (
                       <div
-                        key={subject.subjectID}
-                        className="group relative flex items-center justify-between rounded-sm px-2 py-2 hover:bg-[rgb(255,230,214)]"
-                        onClick={() => {
-                          setSelectedSubject(null);
-                          handleSelectSubject(subject);
-                          navigate(homePath);
-                          setShowYearSubjects(false);
-                          setOpenMenuID(null);
-                        }}
+                        key={programName}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onTouchStart={(e) => e.stopPropagation()}
                       >
-                        <span className="flex-1 cursor-pointer text-sm break-all">
-                          {subject.programName} - {subject.subjectCode}
-                        </span>
-                        <div
-                          className="relative"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <button
-                            className="hidden items-center justify-center rounded-full transition group-hover:flex"
-                            onClick={(e) => {
+                        <div className="flex items-center justify-center gap-2 px-2 py-1">
+                          <div className="h-[0.5px] flex-1 bg-[rgb(200,200,200)]"></div>
+                          <span className="open-sans min-w-[60px] text-center text-sm font-bold text-gray-700">
+                            {programName}
+                          </span>
+                          <div className="h-[0.5px] flex-1 bg-[rgb(200,200,200)]"></div>
+                        </div>
+                        {subjects.map((subject) => (
+                          <div
+                            key={subject.subjectID}
+                            className={`group relative flex items-center justify-between rounded-sm px-2 py-2 ${
+                              selectedSubject?.subjectID === subject.subjectID
+                                ? "bg-orange-500 text-white"
+                                : "hover:bg-[rgb(255,230,214)]"
+                            }`}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
                               e.stopPropagation();
-                              const rect =
-                                e.currentTarget.getBoundingClientRect();
-                              const menuHeight = 80;
-                              const spaceBelow =
-                                window.innerHeight - rect.bottom;
-                              const direction =
-                                spaceBelow < menuHeight ? "up" : "down";
-                              setDropdownDirection(direction);
-                              setDropdownPosition({
-                                x: rect.right,
-                                y: rect.bottom,
-                              });
-                              setDropdownSubject(subject);
-                              setOpenMenuID(subject.subjectID);
+                              setSelectedSubject(null);
+                              handleSelectSubject(subject);
+                              navigate(homePath);
+                              setShowYearSubjects(false);
+                              setOpenMenuID(null);
+                            }}
+                            onTouchStart={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setSelectedSubject(null);
+                              handleSelectSubject(subject);
+                              navigate(homePath);
+                              setShowYearSubjects(false);
+                              setOpenMenuID(null);
                             }}
                           >
-                            <i className="bx bx-dots-vertical-rounded cursor-pointer text-[18px]"></i>
-                          </button>
-                        </div>
+                            <span className="flex-1 cursor-pointer text-sm break-all">
+                              {subject.subjectCode}
+                            </span>
+                            <div
+                              className="relative"
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onTouchStart={(e) => e.stopPropagation()}
+                            >
+                              <button
+                                className={`items-center justify-center rounded-full transition ${
+                                  selectedSubject?.subjectID ===
+                                  subject.subjectID
+                                    ? "flex"
+                                    : "hidden group-hover:flex"
+                                }`}
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  const rect =
+                                    e.currentTarget.getBoundingClientRect();
+                                  const menuHeight = 80;
+                                  const spaceBelow =
+                                    window.innerHeight - rect.bottom;
+                                  const direction =
+                                    spaceBelow < menuHeight ? "up" : "down";
+                                  setDropdownDirection(direction);
+                                  setDropdownPosition({
+                                    x: rect.right,
+                                    y: rect.bottom,
+                                  });
+                                  setDropdownSubject(subject);
+                                  setOpenMenuID(subject.subjectID);
+                                }}
+                                onTouchStart={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  const rect =
+                                    e.currentTarget.getBoundingClientRect();
+                                  const menuHeight = 80;
+                                  const spaceBelow =
+                                    window.innerHeight - rect.bottom;
+                                  const direction =
+                                    spaceBelow < menuHeight ? "up" : "down";
+                                  setDropdownDirection(direction);
+                                  setDropdownPosition({
+                                    x: rect.right,
+                                    y: rect.bottom,
+                                  });
+                                  setDropdownSubject(subject);
+                                  setOpenMenuID(subject.subjectID);
+                                }}
+                              >
+                                <i className="bx bx-dots-vertical-rounded cursor-pointer text-[18px]"></i>
+                              </button>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     ))
                   ) : (
@@ -732,6 +753,62 @@ const SideBarDropDown = ({
                   )}
                 </div>
               </div>
+
+              {openMenuID && dropdownSubject && (
+                <div
+                  className="absolute z-100 w-35 rounded-md border border-gray-300 bg-white p-1 shadow-sm sm:hidden"
+                  style={{
+                    top:
+                      dropdownDirection === "down"
+                        ? dropdownPosition.y - -20
+                        : dropdownPosition.y - 1,
+                    left: dropdownPosition.x - 150,
+                  }}
+                  onMouseLeave={() => setOpenMenuID(null)}
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                  }}
+                  onTouchStart={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                  }}
+                >
+                  {/* Arrow */}
+                  <button
+                    className="w-full rounded-sm px-3 py-2 text-left text-sm text-black hover:bg-gray-200"
+                    onClick={() => {
+                      setEditingSubject(dropdownSubject);
+                      setEditedSubject({
+                        subjectCode: dropdownSubject.subjectCode,
+                        subjectID: dropdownSubject.subjectID,
+                        subjectName: dropdownSubject.subjectName,
+                        programID: dropdownSubject.programID || "",
+                        yearLevelID: dropdownSubject.yearLevelID || "",
+                      });
+                      setTimeout(() => {
+                        setShowYearSubjects(false);
+                        setOpenMenuID(null);
+                      }, 50);
+                    }}
+                  >
+                    <i className="bx bx-edit-alt mr-2 text-[16px]"></i>Edit
+                  </button>
+                  <button
+                    className="w-full rounded-sm px-3 py-2 text-left text-sm text-black hover:bg-gray-200"
+                    onClick={() => {
+                      setSubjectToDelete(dropdownSubject);
+                      setShowDeleteModal(true);
+                      setTimeout(() => {
+                        setOpenMenuID(null);
+                        setShowYearSubjects(false);
+                      }, 50);
+                    }}
+                  >
+                    <i className="bx bxs-trash-alt mr-2 text-[16px]"></i>Remove
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Desktop Floating Panel */}
@@ -768,48 +845,81 @@ const SideBarDropDown = ({
               <div className="flex h-[calc(100vh-140px)] flex-col">
                 <div className="flex-1 overflow-y-auto p-2">
                   {yearLevelGroups[selectedYearLevel]?.length > 0 ? (
-                    yearLevelGroups[selectedYearLevel].map((subject) => (
-                      <div
-                        key={subject.subjectID}
-                        className="group relative flex items-center justify-between rounded-sm px-2 py-2 hover:bg-[rgb(255,230,214)]"
-                        onClick={() => {
-                          setSelectedSubject(null);
-                          handleSelectSubject(subject);
-                          navigate(homePath);
-                          setShowYearSubjects(false);
-                          setOpenMenuID(null);
-                        }}
-                      >
-                        <span className="flex-1 cursor-pointer text-sm break-all">
-                          {subject.programName} - {subject.subjectCode}
-                        </span>
-                        <div
-                          className="relative"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <button
-                            className="hidden items-center justify-center rounded-full transition group-hover:flex"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const rect =
-                                e.currentTarget.getBoundingClientRect();
-                              const menuHeight = 80;
-                              const spaceBelow =
-                                window.innerHeight - rect.bottom;
-                              const direction =
-                                spaceBelow < menuHeight ? "up" : "down";
-                              setDropdownDirection(direction);
-                              setDropdownPosition({
-                                x: rect.right,
-                                y: rect.bottom,
-                              });
-                              setDropdownSubject(subject);
-                              setOpenMenuID(subject.subjectID);
+                    Object.entries(
+                      yearLevelGroups[selectedYearLevel].reduce(
+                        (acc, subject) => {
+                          const programName =
+                            subject.programName || "Unassigned";
+                          if (!acc[programName]) {
+                            acc[programName] = [];
+                          }
+                          acc[programName].push(subject);
+                          return acc;
+                        },
+                        {},
+                      ),
+                    ).map(([programName, subjects], index, array) => (
+                      <div key={programName}>
+                        <div className="flex items-center justify-center gap-2 px-2 py-1">
+                          <div className="h-[0.5px] flex-1 bg-[rgb(200,200,200)]"></div>
+                          <span className="open-sans min-w-[60px] text-center text-sm font-bold text-gray-700">
+                            {programName}
+                          </span>
+                          <div className="h-[0.5px] flex-1 bg-[rgb(200,200,200)]"></div>
+                        </div>
+                        {subjects.map((subject) => (
+                          <div
+                            key={subject.subjectID}
+                            className={`group relative flex items-center justify-between rounded-sm px-2 py-2 ${
+                              selectedSubject?.subjectID === subject.subjectID
+                                ? "bg-orange-500 text-white"
+                                : "hover:bg-[rgb(255,230,214)]"
+                            }`}
+                            onClick={() => {
+                              setSelectedSubject(null);
+                              handleSelectSubject(subject);
+                              navigate(homePath);
+                              setShowYearSubjects(false);
+                              setOpenMenuID(null);
                             }}
                           >
-                            <i className="bx bx-dots-vertical-rounded cursor-pointer text-[18px]"></i>
-                          </button>
-                        </div>
+                            <span className="flex-1 cursor-pointer text-sm break-all">
+                              {subject.subjectCode}
+                            </span>
+                            <div
+                              className="relative"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <button
+                                className={`items-center justify-center rounded-full transition ${
+                                  selectedSubject?.subjectID ===
+                                  subject.subjectID
+                                    ? "flex"
+                                    : "hidden group-hover:flex"
+                                }`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const rect =
+                                    e.currentTarget.getBoundingClientRect();
+                                  const menuHeight = 80;
+                                  const spaceBelow =
+                                    window.innerHeight - rect.bottom;
+                                  const direction =
+                                    spaceBelow < menuHeight ? "up" : "down";
+                                  setDropdownDirection(direction);
+                                  setDropdownPosition({
+                                    x: rect.right,
+                                    y: rect.bottom,
+                                  });
+                                  setDropdownSubject(subject);
+                                  setOpenMenuID(subject.subjectID);
+                                }}
+                              >
+                                <i className="bx bx-dots-vertical-rounded cursor-pointer text-[18px]"></i>
+                              </button>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     ))
                   ) : (
@@ -827,13 +937,13 @@ const SideBarDropDown = ({
       {/* Subject Actions Menu */}
       {openMenuID && dropdownSubject && (
         <div
-          className="absolute z-58 w-35 rounded-md border border-gray-300 bg-white p-1 shadow-sm"
+          className="absolute z-58 hidden w-35 rounded-md border border-gray-300 bg-white p-1 shadow-sm sm:block"
           style={{
             top:
               dropdownDirection === "down"
                 ? dropdownPosition.y - 50
                 : dropdownPosition.y - 1,
-            left: dropdownPosition.x - -47,
+            left: dropdownPosition.x - -54,
           }}
           onMouseLeave={() => setOpenMenuID(null)}
         >
@@ -850,8 +960,10 @@ const SideBarDropDown = ({
                 programID: dropdownSubject.programID || "",
                 yearLevelID: dropdownSubject.yearLevelID || "",
               });
-              setShowYearSubjects(false);
-              setOpenMenuID(null);
+              setTimeout(() => {
+                setShowYearSubjects(false);
+                setOpenMenuID(null);
+              }, 50);
             }}
           >
             <i className="bx bx-edit-alt mr-2 text-[16px]"></i>Edit
@@ -861,8 +973,10 @@ const SideBarDropDown = ({
             onClick={() => {
               setSubjectToDelete(dropdownSubject);
               setShowDeleteModal(true);
-              setOpenMenuID(null);
-              setShowYearSubjects(false);
+              setTimeout(() => {
+                setOpenMenuID(null);
+                setShowYearSubjects(false);
+              }, 50);
             }}
           >
             <i className="bx bxs-trash-alt mr-2 text-[16px]"></i>Remove
@@ -871,20 +985,34 @@ const SideBarDropDown = ({
       )}
 
       {editingSubject && (
-        <div className="lightbox-bg fixed inset-0 z-100 flex flex-col items-center justify-end min-[448px]:justify-center min-[448px]:p-2">
-          <div className="font-inter border-color relative mx-auto w-full max-w-md rounded-t-2xl border bg-white py-2 pl-4 text-[14px] font-medium text-gray-700 min-[448px]:rounded-t-md">
-            <span>Edit Subject</span>
-          </div>
-          <div className="border-color relative mx-auto w-full max-w-md border border-t-0 bg-white p-2 min-[448px]:rounded-b-md sm:px-4">
-            <div>
-              {/* Subject Name Input */}
-              <div>
-                <div className="mb-2 flex items-start gap-1"></div>
-                <div className="relative w-full">
+        <div className="font-inter bg-opacity-40 lightbox-bg fixed inset-0 z-100 flex items-end justify-center min-[448px]:items-center">
+          <div className="relative max-h-[90vh] w-full max-w-md rounded-t-2xl bg-white shadow-2xl min-[448px]:mx-5 min-[448px]:rounded-md">
+            <div className="border-color relative flex items-center justify-between border-b py-2 pl-4">
+              <h2 className="text-[14px] font-medium text-gray-700">
+                Edit Subject
+              </h2>
+
+              <button
+                onClick={() => {
+                  setEditingSubject(null);
+                  setValidationError("");
+                }}
+                className="absolute top-1 right-1 cursor-pointer rounded-full px-[9px] py-[5px] text-gray-700 hover:text-gray-900"
+                title="Close"
+              >
+                <i className="bx bx-x text-[20px]"></i>
+              </button>
+            </div>
+
+            <div className="px-5 py-4">
+              <div className="mb-4 text-start">
+                <div className="mb-4">
+                  <span className="block text-[14px] text-gray-700">
+                    Subject Name
+                  </span>
                   <div className="relative">
                     <input
                       type="text"
-                      className="peer mt-2 w-full rounded-xl border border-gray-300 px-4 py-[8px] text-base text-gray-900 placeholder-transparent transition-all duration-200 hover:border-gray-500 focus:border-[#FE6902] focus:outline-none"
                       placeholder="Name"
                       value={editedSubject.subjectName}
                       onChange={(e) =>
@@ -893,26 +1021,21 @@ const SideBarDropDown = ({
                           subjectName: e.target.value,
                         }))
                       }
+                      className="peer mt-1 w-full rounded-xl border border-gray-300 px-4 py-[7px] text-[14px] text-gray-900 transition-all duration-200 hover:border-gray-500 focus:border-[#FE6902] focus:outline-none"
                     />
-                    <label
-                      htmlFor="Subject Name"
-                      className="pointer-events-none absolute top-1/2 left-4 z-10 -translate-y-1/2 bg-white px-1 text-base text-gray-500 transition-all duration-200 peer-placeholder-shown:top-1/2 peer-placeholder-shown:mt-1 peer-placeholder-shown:text-base peer-focus:top-2 peer-focus:mt-0 peer-focus:text-xs peer-focus:text-[#FE6902] peer-[&:not(:placeholder-shown)]:top-2 peer-[&:not(:placeholder-shown)]:text-xs"
-                    >
-                      Subject Name
-                    </label>
                   </div>
                 </div>
               </div>
 
-              {/* Subject Code Input */}
-              <div className="mt-2 mb-4">
-                <div className="mb-2 flex items-start gap-1"></div>
-                <div className="relative w-full">
+              <div className="mb-4 text-start">
+                <div className="mb-4">
+                  <span className="block text-[14px] text-gray-700">
+                    Subject Code
+                  </span>
                   <div className="relative">
                     <input
                       type="text"
-                      className="peer mt-2 w-full rounded-xl border border-gray-300 px-4 py-[8px] text-base text-gray-900 placeholder-transparent transition-all duration-200 hover:border-gray-500 focus:border-[#FE6902] focus:outline-none"
-                      placeholder="Name"
+                      placeholder="Code"
                       value={editedSubject.subjectCode}
                       onChange={(e) =>
                         setEditedSubject((prev) => ({
@@ -920,123 +1043,124 @@ const SideBarDropDown = ({
                           subjectCode: e.target.value,
                         }))
                       }
+                      className="peer mt-1 w-full rounded-xl border border-gray-300 px-4 py-[7px] text-[14px] text-gray-900 transition-all duration-200 hover:border-gray-500 focus:border-[#FE6902] focus:outline-none"
                     />
-                    <label
-                      htmlFor="Subject Code"
-                      className="pointer-events-none absolute top-1/2 left-4 z-10 -translate-y-1/2 bg-white px-1 text-base text-gray-500 transition-all duration-200 peer-placeholder-shown:top-1/2 peer-placeholder-shown:mt-1 peer-placeholder-shown:text-base peer-focus:top-2 peer-focus:mt-0 peer-focus:text-xs peer-focus:text-[#FE6902] peer-[&:not(:placeholder-shown)]:top-2 peer-[&:not(:placeholder-shown)]:text-xs"
-                    >
-                      Subject Code
-                    </label>
+                  </div>
+                  <div className="mt-1 text-start text-[11px] text-gray-400">
+                    Enter the subject code of the subject you want to edit (e.g
+                    MATH123)
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-2 mb-3 h-[0.5px] bg-[rgb(200,200,200)]" />
+              <div className="flex gap-4">
+                <div className="flex-1">
+                  <div className="mb-2 flex items-start gap-1">
+                    <span className="block text-[14px] text-gray-700">
+                      Program
+                    </span>
+                  </div>
+
+                  <RegisterDropDownSmall
+                    name="Program"
+                    value={editedSubject.programID}
+                    onChange={(e) =>
+                      setEditedSubject((prev) => ({
+                        ...prev,
+                        programID: e.target.value,
+                      }))
+                    }
+                    placeholder="Select Program"
+                    options={programs.map((program) => ({
+                      value: program.programID,
+                      label: program.programName,
+                    }))}
+                  />
+
+                  <div className="text-start text-[11px] text-gray-400">
+                    Enter the program of the subject you want to edit
                   </div>
                 </div>
 
-                {editedSubject.subjectCode.length > 20 && (
-                  <p className="text-center text-[13px] text-red-500">
-                    Code must be 20 characters or less.
-                  </p>
-                )}
-              </div>
-              <div className="-mx-2 mt-6 mb-3 h-[0.5px] bg-[rgb(200,200,200)] sm:-mx-4" />
+                <div className="flex-1">
+                  <div className="mb-2 flex items-start gap-1">
+                    <span className="block text-[14px] text-gray-700">
+                      Year Level
+                    </span>
+                  </div>
 
-              {/* Program Selection Dropdown */}
-              <div>
-                <div className="mb-2 flex items-start gap-1">
-                  <label className="font-color-gray text-[12px]">Program</label>
+                  <RegisterDropDownSmall
+                    name="Year Level"
+                    value={editedSubject.yearLevelID}
+                    onChange={(e) =>
+                      setEditedSubject((prev) => ({
+                        ...prev,
+                        yearLevelID: e.target.value,
+                      }))
+                    }
+                    placeholder={`${editedSubject.yearLevelID}${Number(editedSubject.yearLevelID) === 1 ? "st" : Number(editedSubject.yearLevelID) === 2 ? "nd" : Number(editedSubject.yearLevelID) === 3 ? "rd" : "th"} Year`}
+                    options={yearLevelOptions.map((yearLevel) => ({
+                      value: yearLevel,
+                      label: `${yearLevel}${Number(yearLevel) === 1 ? "st" : Number(yearLevel) === 2 ? "nd" : Number(yearLevel) === 3 ? "rd" : "th"} Year`,
+                    }))}
+                  />
+                  <div className="text-start text-[11px] text-gray-400">
+                    Enter the year level of the subject
+                  </div>
                 </div>
-
-                <RegisterDropDownSmall
-                  name="Program"
-                  value={editedSubject.programID}
-                  onChange={(e) =>
-                    setEditedSubject((prev) => ({
-                      ...prev,
-                      programID: e.target.value,
-                    }))
-                  }
-                  placeholder="Select Program"
-                  options={programs.map((program) => ({
-                    value: program.programID,
-                    label: program.programName,
-                  }))}
-                />
               </div>
+              <div className="mt-2 mb-3 h-[0.5px] bg-[rgb(200,200,200)]" />
 
-              {/* Year Level Selection */}
-              <div className="mb-4">
-                <div className="mb-2 flex items-start gap-1">
-                  <label className="font-color-gray text-[12px]">
-                    Year Level
-                  </label>
+              {validationError && (
+                <div className="mt-2 mb-2 rounded-md bg-red-50 p-2 text-center text-[13px] text-red-500">
+                  {validationError}
                 </div>
+              )}
 
-                <RegisterDropDownSmall
-                  name="Year Level"
-                  value={editedSubject.yearLevelID}
-                  onChange={(e) =>
-                    setEditedSubject((prev) => ({
-                      ...prev,
-                      yearLevelID: e.target.value,
-                    }))
-                  }
-                  placeholder={`${editedSubject.yearLevelID}${Number(editedSubject.yearLevelID) === 1 ? "st" : Number(editedSubject.yearLevelID) === 2 ? "nd" : Number(editedSubject.yearLevelID) === 3 ? "rd" : "th"} Year`}
-                  options={yearLevelOptions.map((yearLevel) => ({
-                    value: yearLevel,
-                    label: `${yearLevel}${Number(yearLevel) === 1 ? "st" : Number(yearLevel) === 2 ? "nd" : Number(yearLevel) === 3 ? "rd" : "th"} Year`,
-                  }))}
-                />
+              {editedSubject.subjectCode.length > 20 && (
+                <div className="mt-2 mb-2 rounded-md bg-red-50 p-2 text-center text-[13px] text-red-500">
+                  Code must be 20 characters or less.
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2">
+                <button
+                  type="submit"
+                  disabled={isEditing}
+                  onClick={async () => {
+                    const isNameValid = editedSubject.subjectName.trim() !== "";
+                    const isCodeValid =
+                      editedSubject.subjectCode.trim() !== "" &&
+                      editedSubject.subjectCode.length <= 20;
+                    const isProgramValid = editedSubject.programID !== "";
+                    const isYearLevelValid = editedSubject.yearLevelID !== "";
+
+                    if (
+                      !isNameValid ||
+                      !isCodeValid ||
+                      !isProgramValid ||
+                      !isYearLevelValid
+                    ) {
+                      setValidationError("Please fill in all required fields");
+                      return;
+                    }
+
+                    setValidationError("");
+                    await handleSaveEdit(editedSubject.subjectID);
+                    setEditingSubject(null);
+                  }}
+                  className={`mt-2 w-full cursor-pointer rounded-lg py-2 text-[14px] font-semibold text-white transition-all duration-100 ease-in-out ${isEditing ? "cursor-not-allowed bg-gray-500" : "bg-orange-500 hover:bg-orange-700 active:scale-98"} disabled:opacity-50`}
+                >
+                  {isEditing ? (
+                    <div className="flex items-center justify-center">
+                      <span className="loader-white"></span>
+                    </div>
+                  ) : (
+                    "Save Changes"
+                  )}
+                </button>
               </div>
-            </div>
-
-            {/* Divider */}
-            <div className="-mx-2 mt-6 mb-3 h-[0.5px] bg-[rgb(200,200,200)] sm:-mx-4" />
-
-            {validationError && (
-              <div className="mb-3 rounded-md bg-red-50 p-2 text-center text-[13px] text-red-500">
-                {validationError}
-              </div>
-            )}
-
-            <div className="mt-2 flex justify-end gap-2 text-[14px]">
-              <button
-                onClick={() => {
-                  setEditingSubject(null);
-                  setValidationError("");
-                }}
-                className="ml-auto flex cursor-pointer items-center gap-1 rounded-md border px-4 py-1.5 text-gray-700 hover:bg-gray-200"
-              >
-                Cancel
-              </button>
-              <button
-                className="flex w-[80px] cursor-pointer items-center justify-center rounded-md bg-orange-500 px-[12px] py-[6px] text-[14px] text-white hover:bg-orange-700"
-                onClick={async () => {
-                  const isNameValid = editedSubject.subjectName.trim() !== "";
-                  const isCodeValid =
-                    editedSubject.subjectCode.trim() !== "" &&
-                    editedSubject.subjectCode.length <= 20;
-                  const isProgramValid = editedSubject.programID !== "";
-                  const isYearLevelValid = editedSubject.yearLevelID !== "";
-
-                  if (
-                    !isNameValid ||
-                    !isCodeValid ||
-                    !isProgramValid ||
-                    !isYearLevelValid
-                  ) {
-                    setValidationError("Please fill in all required fields");
-                    return;
-                  }
-
-                  setValidationError("");
-                  await handleSaveEdit(editedSubject.subjectID);
-                  setEditingSubject(null);
-                }}
-              >
-                {isEditing ? (
-                  <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
-                ) : (
-                  "Update"
-                )}
-              </button>
             </div>
           </div>
         </div>
@@ -1116,15 +1240,10 @@ const SideBarDropDown = ({
                   await handleDeleteSubject(subjectToDelete.subjectID);
                   setShowDeleteModal(false);
                   setSubjectToDelete(null);
-                  setToast({
-                    message: "Subject deleted successfully",
-                    type: "success",
-                    show: true,
-                  });
                 }}
               >
                 {isDeleting ? (
-                  <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+                  <span className="loader-white"></span>
                 ) : (
                   <span className="inline text-[14px]">Confirm</span>
                 )}
@@ -1134,186 +1253,172 @@ const SideBarDropDown = ({
         </div>
       )}
 
-      {toast.message && (
-        <div
-          className={`fixed top-6 left-1/2 z-56 mx-auto flex max-w-md -translate-x-1/2 transform items-center justify-between rounded border border-l-4 bg-white px-4 py-2 shadow-md transition-opacity duration-1000 ease-in-out ${
-            toast.show ? "opacity-100" : "opacity-0"
-          } ${
-            toast.type === "success" ? "border-green-400" : "border-red-400"
-          }`}
-        >
-          <div className="flex items-center">
-            <i
-              className={`mr-3 text-[24px] ${
-                toast.type === "success"
-                  ? "bx bxs-check-circle text-green-400"
-                  : "bx bxs-error text-red-400"
-              }`}
-            ></i>
-            <div>
-              <p className="font-semibold text-gray-800">
-                {toast.type === "success" ? "Success" : "Error"}
-              </p>
-              <p className="mb-1 text-sm text-nowrap text-gray-600">
-                {toast.message}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Replace the toast JSX with the Toast component */}
+      <Toast message={toast.message} type={toast.type} show={toast.show} />
 
       {showAddModal && (
-        <div className="lightbox-bg fixed inset-0 z-100 flex flex-col items-center justify-end min-[448px]:justify-center min-[448px]:p-2">
-          <div className="font-inter border-color relative mx-auto w-full max-w-md rounded-t-2xl border bg-white py-2 pl-4 text-[14px] font-medium text-gray-700 min-[448px]:rounded-t-md">
-            <span>Add a Subject</span>
-          </div>
+        <>
+          <div className="font-inter bg-opacity-40 lightbox-bg fixed inset-0 z-100 flex items-end justify-center min-[448px]:items-center">
+            <div className="relative max-h-[90vh] w-full max-w-md rounded-t-2xl bg-white shadow-2xl min-[448px]:mx-5 min-[448px]:rounded-md">
+              <div className="border-color relative flex items-center justify-between border-b py-2 pl-4">
+                <h2 className="text-[14px] font-medium text-gray-700">
+                  Add Subject
+                </h2>
 
-          <div className="border-color relative mx-auto w-full max-w-md rounded-b-md border border-t-0 bg-white p-2 sm:px-4">
-            {/* Subject Name */}
-            <div className="mb-4">
-              <div className="mb-2 flex items-start gap-1"></div>
+                <button
+                  onClick={() => {
+                    setNewSubjectName("");
+                    setNewSubjectCode("");
+                    setSelectedProgramID("");
+                    setSelectedYearLevelID("");
+                    setShowAddModal(false);
+                    setValidationError("");
+                  }}
+                  className="absolute top-1 right-1 cursor-pointer rounded-full px-[9px] py-[5px] text-gray-700 hover:text-gray-900"
+                  title="Close"
+                >
+                  <i className="bx bx-x text-[20px]"></i>
+                </button>
+              </div>
 
-              <div className="relative w-full">
-                <div className="relative">
-                  <input
-                    type="text"
-                    className="peer mt-2 w-full rounded-xl border border-gray-300 px-4 py-[8px] text-base text-gray-900 placeholder-transparent transition-all duration-200 hover:border-gray-500 focus:border-[#FE6902] focus:outline-none"
-                    placeholder="Name"
-                    value={newSubjectName}
-                    onChange={(e) => setNewSubjectName(e.target.value)}
-                  />
-                  <label
-                    htmlFor="Subject Name"
-                    className="pointer-events-none absolute top-1/2 left-4 z-10 -translate-y-1/2 bg-white px-1 text-base text-gray-500 transition-all duration-200 peer-placeholder-shown:top-1/2 peer-placeholder-shown:mt-1 peer-placeholder-shown:text-base peer-focus:top-2 peer-focus:mt-0 peer-focus:text-xs peer-focus:text-[#FE6902] peer-[&:not(:placeholder-shown)]:top-2 peer-[&:not(:placeholder-shown)]:text-xs"
-                  >
-                    Subject Name
-                  </label>
+              <div className="px-5 py-4">
+                <div className="mb-4 text-start">
+                  <div className="mb-4">
+                    <span className="block text-[14px] text-gray-700">
+                      Subject Name
+                    </span>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="Name"
+                        value={newSubjectName}
+                        onChange={(e) => setNewSubjectName(e.target.value)}
+                        className="peer mt-1 w-full rounded-xl border border-gray-300 px-4 py-[7px] text-[14px] text-gray-900 transition-all duration-200 hover:border-gray-500 focus:border-[#FE6902] focus:outline-none"
+                      />
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
 
-            {/* Subject Code */}
-            <div className="mb-4">
-              <div className="mb-2 flex items-start gap-1"></div>
-
-              <div className="relative w-full">
-                <div className="relative">
-                  <input
-                    type="text"
-                    className="peer mt-2 w-full rounded-xl border border-gray-300 px-4 py-[8px] text-base text-gray-900 placeholder-transparent transition-all duration-200 hover:border-gray-500 focus:border-[#FE6902] focus:outline-none"
-                    placeholder="Code"
-                    value={newSubjectCode}
-                    onChange={(e) => setNewSubjectCode(e.target.value)}
-                  />
-                  <label
-                    htmlFor="Subject Code"
-                    className="pointer-events-none absolute top-1/2 left-4 z-10 -translate-y-1/2 bg-white px-1 text-base text-gray-500 transition-all duration-200 peer-placeholder-shown:top-1/2 peer-placeholder-shown:mt-1 peer-placeholder-shown:text-base peer-focus:top-2 peer-focus:mt-0 peer-focus:text-xs peer-focus:text-[#FE6902] peer-[&:not(:placeholder-shown)]:top-2 peer-[&:not(:placeholder-shown)]:text-xs"
-                  >
-                    Subject Code
-                  </label>
+                <div className="mb-4 text-start">
+                  <div className="mb-4">
+                    <span className="block text-[14px] text-gray-700">
+                      Subject Code
+                    </span>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="Code"
+                        value={newSubjectCode}
+                        onChange={(e) => setNewSubjectCode(e.target.value)}
+                        className="peer mt-1 w-full rounded-xl border border-gray-300 px-4 py-[7px] text-[14px] text-gray-900 transition-all duration-200 hover:border-gray-500 focus:border-[#FE6902] focus:outline-none"
+                      />
+                    </div>
+                    <div className="mt-1 text-start text-[11px] text-gray-400">
+                      Enter the subject code of the subject you want to add (e.g
+                      MATH123)
+                    </div>
+                  </div>
                 </div>
-              </div>
 
-              {newSubjectCode.length > 20 && (
-                <p className="mt-1 ml-2 text-start text-[13px] text-red-500">
-                  Code must be 20 characters or less.
-                </p>
-              )}
-            </div>
-            <div className="-mx-2 mt-6 mb-3 h-[0.5px] bg-[rgb(200,200,200)] sm:-mx-4" />
+                <div className="mt-2 mb-3 h-[0.5px] bg-[rgb(200,200,200)]" />
+                <div className="flex gap-4">
+                  <div className="flex-1">
+                    <div className="mb-2 flex items-start gap-1">
+                      <span className="block text-[14px] text-gray-700">
+                        Program
+                      </span>
+                    </div>
 
-            {/* Program Selection */}
-            <div>
-              <div className="mb-2 flex items-start gap-1">
-                <label className="font-color-gray text-[12px]">Program</label>
-              </div>
+                    <RegisterDropDownSmall
+                      name="Program"
+                      value={selectedProgramID}
+                      onChange={(e) => setSelectedProgramID(e.target.value)}
+                      placeholder="Select Program"
+                      options={programs.map((program) => ({
+                        value: program.programID,
+                        label: program.programName,
+                      }))}
+                    />
 
-              <RegisterDropDownSmall
-                name="Program"
-                value={selectedProgramID}
-                onChange={(e) => setSelectedProgramID(e.target.value)}
-                placeholder="Select Program"
-                options={programs.map((program) => ({
-                  value: program.programID,
-                  label: program.programName,
-                }))}
-              />
-            </div>
+                    <div className="text-start text-[11px] text-gray-400">
+                      Enter the program of the subject you want to add
+                    </div>
+                  </div>
 
-            {/* Year Level Selection */}
-            <div className="mb-4">
-              <div className="mb-2 flex items-start gap-1">
-                <label className="font-color-gray text-[12px]">
-                  Year Level
-                </label>
-              </div>
+                  <div className="flex-1">
+                    <div className="mb-2 flex items-start gap-1">
+                      <span className="block text-[14px] text-gray-700">
+                        Year Level
+                      </span>
+                    </div>
 
-              <RegisterDropDownSmall
-                name="Year Level"
-                value={selectedYearLevelID}
-                onChange={(e) => setSelectedYearLevelID(e.target.value)}
-                placeholder="Select Year Level"
-                options={yearLevelOptions.map((yearLevel) => ({
-                  value: yearLevel,
-                  label: `${yearLevel}${yearLevel === "1" ? "st" : yearLevel === "2" ? "nd" : yearLevel === "3" ? "rd" : "th"} Year`,
-                }))}
-              />
-            </div>
+                    <RegisterDropDownSmall
+                      name="Year Level"
+                      value={selectedYearLevelID}
+                      onChange={(e) => setSelectedYearLevelID(e.target.value)}
+                      placeholder="Select Year Level"
+                      options={yearLevelOptions.map((yearLevel) => ({
+                        value: yearLevel,
+                        label: `${yearLevel}${yearLevel === "1" ? "st" : yearLevel === "2" ? "nd" : yearLevel === "3" ? "rd" : "th"} Year`,
+                      }))}
+                    />
+                    <div className="text-start text-[11px] text-gray-400">
+                      Enter the year level of the subject
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-2 mb-3 h-[0.5px] bg-[rgb(200,200,200)]" />
 
-            {/* Divider */}
-            <div className="-mx-2 mt-6 mb-3 h-[0.5px] bg-[rgb(200,200,200)] sm:-mx-4" />
-
-            {validationError && (
-              <div className="mb-3 rounded-md bg-red-50 p-2 text-center text-[13px] text-red-500">
-                {validationError}
-              </div>
-            )}
-
-            {/* Buttons */}
-            <div className="mb-1 flex justify-end gap-2">
-              <button
-                className="cursor-pointer rounded-md border px-[12px] py-[6px] text-gray-700 hover:bg-gray-200"
-                onClick={() => {
-                  setNewSubjectName("");
-                  setNewSubjectCode("");
-                  setSelectedProgramID("");
-                  setSelectedYearLevelID("");
-                  setShowAddModal(false);
-                  setValidationError("");
-                }}
-              >
-                <span className="text-[14px]">Cancel</span>
-              </button>
-
-              <button
-                className="flex w-[80px] cursor-pointer items-center justify-center rounded-md bg-orange-500 px-[12px] py-[6px] text-[14px] text-white hover:bg-orange-700"
-                onClick={async () => {
-                  const valid =
-                    newSubjectName.trim() !== "" &&
-                    newSubjectCode.trim() !== "" &&
-                    newSubjectCode.length <= 20 &&
-                    selectedProgramID &&
-                    selectedYearLevelID;
-
-                  if (!valid) {
-                    setValidationError("Please fill in all required fields");
-                    return;
-                  }
-
-                  setValidationError("");
-                  await handleAddSubject();
-                  setShowAddModal(false);
-                }}
-              >
-                {isAdding ? (
-                  <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
-                ) : (
-                  "Add"
+                {validationError && (
+                  <div className="mt-2 mb-2 rounded-md bg-red-50 p-2 text-center text-[13px] text-red-500">
+                    {validationError}
+                  </div>
                 )}
-              </button>
+
+                {newSubjectCode.length > 20 && (
+                  <div className="mt-2 mb-2 rounded-md bg-red-50 p-2 text-center text-[13px] text-red-500">
+                    Code must be 20 characters or less.
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="submit"
+                    disabled={isAdding}
+                    onClick={async () => {
+                      const valid =
+                        newSubjectName.trim() !== "" &&
+                        newSubjectCode.trim() !== "" &&
+                        newSubjectCode.length <= 20 &&
+                        selectedProgramID &&
+                        selectedYearLevelID;
+
+                      if (!valid) {
+                        setValidationError(
+                          "Please fill in all required fields",
+                        );
+                        return;
+                      }
+
+                      setValidationError("");
+                      await handleAddSubject();
+                      setShowAddModal(false);
+                    }}
+                    className={`mt-2 w-full cursor-pointer rounded-lg py-2 text-[14px] font-semibold text-white transition-all duration-100 ease-in-out ${isAdding ? "cursor-not-allowed bg-gray-500" : "bg-orange-500 hover:bg-orange-700 active:scale-98"} disabled:opacity-50`}
+                  >
+                    {isAdding ? (
+                      <div className="flex items-center justify-center">
+                        <span className="loader-white"></span>
+                      </div>
+                    ) : (
+                      "Save Changes"
+                    )}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   );
